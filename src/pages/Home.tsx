@@ -1,4 +1,5 @@
 import { Sparkles, Rocket, ShoppingCart, Briefcase, Users, Code, Palette, Search, Target, Layers, Wrench } from 'lucide-react';
+import ColorBends from '../components/ColorBends';
 
 interface HomeProps {
   onNavigate: (section: string) => void;
@@ -32,9 +33,21 @@ export default function Home({ onNavigate }: HomeProps) {
   return (
     <div className="min-h-screen">
       <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#0f172a] via-[#0d1117] to-[#1e3a8a] opacity-70"></div>
-        <div className="absolute top-20 right-20 w-96 h-96 bg-[#2563eb] rounded-full blur-[120px] opacity-20"></div>
-        <div className="absolute bottom-20 left-20 w-96 h-96 bg-[#1e3a8a] rounded-full blur-[120px] opacity-20"></div>
+        <div className="absolute inset-0 z-0">
+          <ColorBends
+            colors={["#2563eb", "#1e3a8a", "#3b82f6"]}
+            rotation={30}
+            speed={0.3}
+            scale={1.2}
+            frequency={1.4}
+            warpStrength={1.2}
+            mouseInfluence={0.8}
+            parallax={0.6}
+            noise={0.08}
+            transparent
+          />
+        </div>
+        <div className="absolute inset-0 bg-[#0d1117]/40 z-[1]"></div>
 
         <div className="relative z-10 max-w-7x1 mx-auto px-6 text-center">
           <h1
