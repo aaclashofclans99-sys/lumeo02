@@ -41,7 +41,7 @@ export default function Home({ onNavigate }: HomeProps) {
             className="text-6xl md:text-7xl font-bold text-[#f1f5f9] mb-8 animate-fade-in"
             style={{ fontFamily: 'Space Grotesk, sans-serif' }}
           >
-            Launch your brand online with <br /> a website built that scales
+            Launch your brand online with <br /> a website built that converts & scales
           </h1>
           <p className="text-xl text-[#94a3b8] mb-10 max-w-2xl mx-auto">
             LumeoDigital helps startups and small businesses grow online with clean, responsive, and high-performance websites.
