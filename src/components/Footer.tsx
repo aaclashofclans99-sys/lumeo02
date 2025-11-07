@@ -75,16 +75,10 @@ export default function Footer({ onNavigate }: FooterProps) {
           </div>
         </div>
 
-        <div className="border-t border-white/8 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="border-t border-white/8 pt-8 flex flex-col items-center justify-center text-center">
           <p className="text-[#94a3b8] text-sm">
             © 2025 LumeoDigital. All rights reserved.
           </p>
-          <button
-            onClick={() => onNavigate('contact')}
-            className="px-6 py-2.5 rounded-full bg-gradient-to-r from-[#2563eb] to-[#1e3a8a] text-[#f1f5f9] font-medium text-sm hover:scale-105 hover:shadow-[0_0_20px_rgba(37,99,235,0.5)] transition-all"
-          >
-            Book a Call
-          </button>
         </div>
       </div>
     </footer>
