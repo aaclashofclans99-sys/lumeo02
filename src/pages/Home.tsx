@@ -1,5 +1,5 @@
 import { Sparkles, Rocket, ShoppingCart, Briefcase, Users, Code, Palette, Search, Target, Layers, Wrench } from 'lucide-react';
-import ColorBends from '../components/ColorBends';
+import Plasma from '../components/Plasma';
 
 interface HomeProps {
   onNavigate: (section: string) => void;
@@ -33,28 +33,24 @@ export default function Home({ onNavigate }: HomeProps) {
   return (
     <div className="min-h-screen">
       <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
-        <div className="absolute inset-0 z-0">
-          <ColorBends
-            colors={["#2563eb", "#1e3a8a", "#3b82f6"]}
-            rotation={30}
-            speed={0.3}
-            scale={1.2}
-            frequency={1.4}
-            warpStrength={1.2}
-            mouseInfluence={0.8}
-            parallax={0.6}
-            noise={0.08}
-            transparent
+        <div className="absolute inset-0">
+          <Plasma
+            color="#2563eb"
+            speed={0.6}
+            direction="forward"
+            scale={1.1}
+            opacity={0.5}
+            mouseInteractive={true}
           />
         </div>
-        <div className="absolute inset-0 bg-[#0d1117]/40 z-[1]"></div>
+        <div className="absolute inset-0 bg-gradient-to-br from-[#0f172a]/80 via-[#0d1117]/70 to-[#1e3a8a]/80"></div>
 
         <div className="relative z-10 max-w-7x1 mx-auto px-6 text-center">
           <h1
             className="text-6xl md:text-7xl font-bold text-[#f1f5f9] mb-8 animate-fade-in"
             style={{ fontFamily: 'Space Grotesk, sans-serif' }}
           >
-            Launch your brand online <br /> with a website built that <br /> converts & scales
+            Boast Your Business With <br /> A Website that converts <br /> & scales.
           </h1>
           <p className="text-xl text-[#94a3b8] mb-10 max-w-2xl mx-auto">
             LumeoDigital helps startups and small businesses grow online with clean, responsive, and high-performance websites.
