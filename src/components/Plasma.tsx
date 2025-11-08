@@ -13,7 +13,11 @@ interface PlasmaProps {
 const hexToRgb = (hex: string): [number, number, number] => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   if (!result) return [1, 0.5, 0.2];
-  return [parseInt(result[1], 16) / 255, parseInt(result[2], 16) / 255, parseInt(result[3], 16) / 255];
+  return [
+    parseInt(result[1], 16) / 255,
+    parseInt(result[2], 16) / 255,
+    parseInt(result[3], 16) / 255,
+  ];
 };
 
 const vertex = `#version 300 es
@@ -27,8 +31,10 @@ void main() {
 }
 `;
 
+// The full fragment shader must be enclosed in one backtick template literal!
 const fragment = `#version 300 es
 precision highp float;
+
 uniform vec2 iResolution;
 uniform float iTime;
 uniform float uSpeed;
@@ -37,8 +43,8 @@ uniform float uScale;
 uniform float uOpacity;
 uniform vec2 uMouse;
 uniform float uMouseInteractive;
+
 out vec4 fragColor;
-`;
 
 void mainImage(out vec4 o, vec2 C) {
   vec2 center = iResolution.xy * 0.5;
@@ -47,26 +53,32 @@ void mainImage(out vec4 o, vec2 C) {
   vec2 mouseOffset = (uMouse - center) * 0.0002;
   C += mouseOffset * length(C - center) * step(0.5, uMouseInteractive);
   
-  float i, d, z, T = iTime * uSpeed * uDirection;
-  vec3 O, p, S;
+  float i = 0.0;
+  float d = 0.0;
+  float z = 0.0;
+  float T = iTime * uSpeed * uDirection;
+  vec3 O = vec3(0.0);
+  vec3 p;
+  vec3 S;
 
-  for (vec2 r = iResolution.xy, Q; ++i < 60.; O += o.w/d*o.xyz) {
-    p = z*normalize(vec3(C-.5*r,r.y)); 
-    p.z -= 4.; 
+  for (; i < 60.0; i++) {
+    p = z * normalize(vec3(C - 0.5 * iResolution.xy, iResolution.y));
+    p.z -= 4.0;
     S = p;
-    d = p.y-T;
+    d = p.y - T;
     
-    p.x += .4*(1.+p.y)*sin(d + p.x*0.1)*cos(.34*d + p.x*0.05); 
-    Q = p.xz *= mat2(cos(p.y+vec4(0,11,33,0)-T)); 
-    z+= d = abs(sqrt(length(Q*Q)) - .25*(5.+S.y))/3.+8e-4; 
-    o = 1.+sin(S.y+p.z*.5+S.z-length(S-p)+vec4(2,1,0,8));
+    p.x += 0.4 * (1.0 + p.y) * sin(d + p.x * 0.1) * cos(0.34 * d + p.x * 0.05);
+    vec2 Q = p.xz * mat2(cos(p.y + vec4(0.0, 11.0, 33.0, 0.0)[0] - T), 0.0, 0.0, cos(p.y + vec4(0.0, 11.0, 33.0, 0.0)[0] - T));
+    z += d = abs(sqrt(dot(Q, Q)) - 0.25 * (5.0 + S.y)) / 3.0 + 8e-4;
+    o = 1.0 + sin(S.y + p.z * 0.5 + S.z - length(S - p) + vec4(2.0, 1.0, 0.0, 8.0));
+    O += o.w / d * o.xyz;
   }
-  
-  o.xyz = tanh(O/1e4);
+
+  o.xyz = tanh(O / 1e4);
 }
 
-bool finite1(float x){ return !(isnan(x) || isinf(x)); }
-vec3 sanitize(vec3 c){
+bool finite1(float x) { return !(isnan(x) || isinf(x)); }
+vec3 sanitize(vec3 c) {
   return vec3(
     finite1(c.r) ? c.r : 0.0,
     finite1(c.g) ? c.g : 0.0,
@@ -100,6 +112,7 @@ void main() {
   float alpha = length(rgb) * uOpacity;
   fragColor = vec4(finalColor, alpha);
 }
+`;
 
 export const Plasma: React.FC<PlasmaProps> = ({
   color = '#ffffff',
@@ -107,7 +120,7 @@ export const Plasma: React.FC<PlasmaProps> = ({
   direction = 'forward',
   scale = 1,
   opacity = 1,
-  mouseInteractive = true
+  mouseInteractive = true,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mousePos = useRef({ x: 0, y: 0 });
@@ -115,16 +128,13 @@ export const Plasma: React.FC<PlasmaProps> = ({
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const useCustomColor = color ? 1.0 : 0.0;
-    const customColorRgb = color ? hexToRgb(color) : [1, 1, 1];
-
     const directionMultiplier = direction === 'reverse' ? -1.0 : 1.0;
 
     const renderer = new Renderer({
       webgl: 2,
       alpha: true,
       antialias: false,
-      dpr: Math.min(window.devicePixelRatio || 1, 2)
+      dpr: Math.min(window.devicePixelRatio || 1, 2),
     });
     const gl = renderer.gl;
     const canvas = gl.canvas as HTMLCanvasElement;
@@ -136,9 +146,9 @@ export const Plasma: React.FC<PlasmaProps> = ({
     const geometry = new Triangle(gl);
 
     const program = new Program(gl, {
-      vertex: vertex,
-      fragment: fragment,
-    uniforms: {
+      vertex,
+      fragment,
+      uniforms: {
         iTime: { value: 0 },
         iResolution: { value: new Float32Array([1, 1]) },
         uSpeed: { value: speed * 0.4 },
@@ -146,13 +156,8 @@ export const Plasma: React.FC<PlasmaProps> = ({
         uScale: { value: scale },
         uOpacity: { value: opacity },
         uMouse: { value: new Float32Array([0, 0]) },
-        uMouseInteractive: { value: mouseInteractive ? 1.0 : 0.0 }
-        uDirection: { value: directionMultiplier },
-        uScale: { value: scale },
-        uOpacity: { value: opacity },
-        uMouse: { value: new Float32Array([0, 0]) },
-        uMouseInteractive: { value: mouseInteractive ? 1.0 : 0.0 }
-      }
+        uMouseInteractive: { value: mouseInteractive ? 1.0 : 0.0 },
+      },
     });
 
     const mesh = new Mesh(gl, { geometry, program });
