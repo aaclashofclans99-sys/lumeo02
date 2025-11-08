@@ -81,12 +81,26 @@ void main() {
   vec3 rgb = sanitize(o.rgb);
   
   float intensity = (rgb.r + rgb.g + rgb.b) / 3.0;
-  vec3 customColor = intensity * uCustomColor;
-  vec3 finalColor = mix(rgb, customColor, step(0.5, uUseCustomColor));
-  
+
+  // --- MULTI-COLOR PALETTE (Replace these with your brand colors later) ---
+  vec3 colorA = vec3(0.96, 0.45, 1.00); // pink/purple
+  vec3 colorB = vec3(0.32, 0.68, 1.00); // cyan/blue
+  vec3 colorC = vec3(0.20, 0.95, 0.68); // mint/green
+
+  // Smooth animated transitions
+  float t = sin(iTime * 0.4) * 0.5 + 0.5;
+  float u = sin(iTime * 0.7 + 1.0) * 0.5 + 0.5;
+
+  // Blend colors based on plasma intensity
+  vec3 finalColor = mix(
+    mix(colorA, colorB, t),
+    colorC,
+    u * intensity
+  );
+
   float alpha = length(rgb) * uOpacity;
   fragColor = vec4(finalColor, alpha);
-}`;
+}
 
 export const Plasma: React.FC<PlasmaProps> = ({
   color = '#ffffff',
