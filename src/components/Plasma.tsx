@@ -38,6 +38,7 @@ uniform float uOpacity;
 uniform vec2 uMouse;
 uniform float uMouseInteractive;
 out vec4 fragColor;
+`;
 
 void mainImage(out vec4 o, vec2 C) {
   vec2 center = iResolution.xy * 0.5;
