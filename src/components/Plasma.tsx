@@ -1,388 +1,372 @@
-import React, { useEffect, useRef } from 'react';
-import { Renderer, Program, Mesh, Triangle } from 'ogl';
+import { forwardRef, useImperativeHandle, useEffect, useRef, useMemo, FC, ReactNode } from 'react';
 
-export interface GradientBlindsProps {
-  className?: string;
-  dpr?: number;
-  paused?: boolean;
-  gradientColors?: string[];
-  angle?: number;
-  noise?: number;
-  blindCount?: number;
-  blindMinWidth?: number;
-  mouseDampening?: number;
-  mirrorGradient?: boolean;
-  spotlightRadius?: number;
-  spotlightSoftness?: number;
-  spotlightOpacity?: number;
-  distortAmount?: number;
-  shineDirection?: 'left' | 'right';
-  mixBlendMode?: string;
+import * as THREE from 'three';
+
+import { Canvas, useFrame } from '@react-three/fiber';
+import { PerspectiveCamera } from '@react-three/drei';
+import { degToRad } from 'three/src/math/MathUtils.js';
+
+type UniformValue = THREE.IUniform<unknown> | unknown;
+
+interface ExtendMaterialConfig {
+  header: string;
+  vertexHeader?: string;
+  fragmentHeader?: string;
+  material?: THREE.MeshPhysicalMaterialParameters & { fog?: boolean };
+  uniforms?: Record<string, UniformValue>;
+  vertex?: Record<string, string>;
+  fragment?: Record<string, string>;
 }
 
-const MAX_COLORS = 8;
-const hexToRGB = (hex: string): [number, number, number] => {
-  const c = hex.replace('#', '').padEnd(6, '0');
-  const r = parseInt(c.slice(0, 2), 16) / 255;
-  const g = parseInt(c.slice(2, 4), 16) / 255;
-  const b = parseInt(c.slice(4, 6), 16) / 255;
-  return [r, g, b];
-};
-const prepStops = (stops?: string[]) => {
-  const base = (stops && stops.length ? stops : ['#FF9FFC', '#5227FF']).slice(0, MAX_COLORS);
-  if (base.length === 1) base.push(base[0]);
-  while (base.length < MAX_COLORS) base.push(base[base.length - 1]);
-  const arr: [number, number, number][] = [];
-  for (let i = 0; i < MAX_COLORS; i++) arr.push(hexToRGB(base[i]));
-  const count = Math.max(2, Math.min(MAX_COLORS, stops?.length ?? 2));
-  return { arr, count };
+type ShaderWithDefines = THREE.ShaderLibShader & {
+  defines?: Record<string, string | number | boolean>;
 };
 
-const GradientBlinds: React.FC<GradientBlindsProps> = ({
-  className,
-  dpr,
-  paused = false,
-  gradientColors,
-  angle = 0,
-  noise = 0.3,
-  blindCount = 16,
-  blindMinWidth = 60,
-  mouseDampening = 0.15,
-  mirrorGradient = false,
-  spotlightRadius = 0.5,
-  spotlightSoftness = 1,
-  spotlightOpacity = 1,
-  distortAmount = 0,
-  shineDirection = 'left',
-  mixBlendMode = 'lighten'
+function extendMaterial<T extends THREE.Material = THREE.Material>(
+  BaseMaterial: new (params?: THREE.MaterialParameters) => T,
+  cfg: ExtendMaterialConfig
+): THREE.ShaderMaterial {
+  const physical = THREE.ShaderLib.physical as ShaderWithDefines;
+  const { vertexShader: baseVert, fragmentShader: baseFrag, uniforms: baseUniforms } = physical;
+  const baseDefines = physical.defines ?? {};
+
+  const uniforms: Record<string, THREE.IUniform> = THREE.UniformsUtils.clone(baseUniforms);
+
+  const defaults = new BaseMaterial(cfg.material || {}) as T & {
+    color?: THREE.Color;
+    roughness?: number;
+    metalness?: number;
+    envMap?: THREE.Texture;
+    envMapIntensity?: number;
+  };
+
+  if (defaults.color) uniforms.diffuse.value = defaults.color;
+  if ('roughness' in defaults) uniforms.roughness.value = defaults.roughness;
+  if ('metalness' in defaults) uniforms.metalness.value = defaults.metalness;
+  if ('envMap' in defaults) uniforms.envMap.value = defaults.envMap;
+  if ('envMapIntensity' in defaults) uniforms.envMapIntensity.value = defaults.envMapIntensity;
+
+  Object.entries(cfg.uniforms ?? {}).forEach(([key, u]) => {
+    uniforms[key] =
+      u !== null && typeof u === 'object' && 'value' in u
+        ? (u as THREE.IUniform<unknown>)
+        : ({ value: u } as THREE.IUniform<unknown>);
+  });
+
+  let vert = `${cfg.header}\n${cfg.vertexHeader ?? ''}\n${baseVert}`;
+  let frag = `${cfg.header}\n${cfg.fragmentHeader ?? ''}\n${baseFrag}`;
+
+  for (const [inc, code] of Object.entries(cfg.vertex ?? {})) {
+    vert = vert.replace(inc, `${inc}\n${code}`);
+  }
+  for (const [inc, code] of Object.entries(cfg.fragment ?? {})) {
+    frag = frag.replace(inc, `${inc}\n${code}`);
+  }
+
+  const mat = new THREE.ShaderMaterial({
+    defines: { ...baseDefines },
+    uniforms,
+    vertexShader: vert,
+    fragmentShader: frag,
+    lights: true,
+    fog: !!cfg.material?.fog
+  });
+
+  return mat;
+}
+
+const CanvasWrapper: FC<{ children: ReactNode }> = ({ children }) => (
+  <Canvas dpr={[1, 2]} frameloop="always" className="w-full h-full relative">
+    {children}
+  </Canvas>
+);
+
+const hexToNormalizedRGB = (hex: string): [number, number, number] => {
+  const clean = hex.replace('#', '');
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+  return [r / 255, g / 255, b / 255];
+};
+
+const noise = `
+float random (in vec2 st) {
+    return fract(sin(dot(st.xy,
+                         vec2(12.9898,78.233)))*
+        43758.5453123);
+}
+float noise (in vec2 st) {
+    vec2 i = floor(st);
+    vec2 f = fract(st);
+    float a = random(i);
+    float b = random(i + vec2(1.0, 0.0));
+    float c = random(i + vec2(0.0, 1.0));
+    float d = random(i + vec2(1.0, 1.0));
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(a, b, u.x) +
+           (c - a)* u.y * (1.0 - u.x) +
+           (d - b) * u.x * u.y;
+}
+vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
+vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
+vec3 fade(vec3 t) {return t*t*t*(t*(t*6.0-15.0)+10.0);}
+float cnoise(vec3 P){
+  vec3 Pi0 = floor(P);
+  vec3 Pi1 = Pi0 + vec3(1.0);
+  Pi0 = mod(Pi0, 289.0);
+  Pi1 = mod(Pi1, 289.0);
+  vec3 Pf0 = fract(P);
+  vec3 Pf1 = Pf0 - vec3(1.0);
+  vec4 ix = vec4(Pi0.x, Pi1.x, Pi0.x, Pi1.x);
+  vec4 iy = vec4(Pi0.yy, Pi1.yy);
+  vec4 iz0 = Pi0.zzzz;
+  vec4 iz1 = Pi1.zzzz;
+  vec4 ixy = permute(permute(ix) + iy);
+  vec4 ixy0 = permute(ixy + iz0);
+  vec4 ixy1 = permute(ixy + iz1);
+  vec4 gx0 = ixy0 / 7.0;
+  vec4 gy0 = fract(floor(gx0) / 7.0) - 0.5;
+  gx0 = fract(gx0);
+  vec4 gz0 = vec4(0.5) - abs(gx0) - abs(gy0);
+  vec4 sz0 = step(gz0, vec4(0.0));
+  gx0 -= sz0 * (step(0.0, gx0) - 0.5);
+  gy0 -= sz0 * (step(0.0, gy0) - 0.5);
+  vec4 gx1 = ixy1 / 7.0;
+  vec4 gy1 = fract(floor(gx1) / 7.0) - 0.5;
+  gx1 = fract(gx1);
+  vec4 gz1 = vec4(0.5) - abs(gx1) - abs(gy1);
+  vec4 sz1 = step(gz1, vec4(0.0));
+  gx1 -= sz1 * (step(0.0, gx1) - 0.5);
+  gy1 -= sz1 * (step(0.0, gy1) - 0.5);
+  vec3 g000 = vec3(gx0.x,gy0.x,gz0.x);
+  vec3 g100 = vec3(gx0.y,gy0.y,gz0.y);
+  vec3 g010 = vec3(gx0.z,gy0.z,gz0.z);
+  vec3 g110 = vec3(gx0.w,gy0.w,gz0.w);
+  vec3 g001 = vec3(gx1.x,gy1.x,gz1.x);
+  vec3 g101 = vec3(gx1.y,gy1.y,gz1.y);
+  vec3 g011 = vec3(gx1.z,gy1.z,gz1.z);
+  vec3 g111 = vec3(gx1.w,gy1.w,gz1.w);
+  vec4 norm0 = taylorInvSqrt(vec4(dot(g000,g000),dot(g010,g010),dot(g100,g100),dot(g110,g110)));
+  g000 *= norm0.x; g010 *= norm0.y; g100 *= norm0.z; g110 *= norm0.w;
+  vec4 norm1 = taylorInvSqrt(vec4(dot(g001,g001),dot(g011,g011),dot(g101,g101),dot(g111,g111)));
+  g001 *= norm1.x; g011 *= norm1.y; g101 *= norm1.z; g111 *= norm1.w;
+  float n000 = dot(g000, Pf0);
+  float n100 = dot(g100, vec3(Pf1.x,Pf0.yz));
+  float n010 = dot(g010, vec3(Pf0.x,Pf1.y,Pf0.z));
+  float n110 = dot(g110, vec3(Pf1.xy,Pf0.z));
+  float n001 = dot(g001, vec3(Pf0.xy,Pf1.z));
+  float n101 = dot(g101, vec3(Pf1.x,Pf0.y,Pf1.z));
+  float n011 = dot(g011, vec3(Pf0.x,Pf1.yz));
+  float n111 = dot(g111, Pf1);
+  vec3 fade_xyz = fade(Pf0);
+  vec4 n_z = mix(vec4(n000,n100,n010,n110),vec4(n001,n101,n011,n111),fade_xyz.z);
+  vec2 n_yz = mix(n_z.xy,n_z.zw,fade_xyz.y);
+  float n_xyz = mix(n_yz.x,n_yz.y,fade_xyz.x);
+  return 2.2 * n_xyz;
+}
+`;
+
+interface BeamsProps {
+  beamWidth?: number;
+  beamHeight?: number;
+  beamNumber?: number;
+  lightColor?: string;
+  speed?: number;
+  noiseIntensity?: number;
+  scale?: number;
+  rotation?: number;
+}
+
+const Beams: FC<BeamsProps> = ({
+  beamWidth = 2,
+  beamHeight = 15,
+  beamNumber = 12,
+  lightColor = '#ffffff',
+  speed = 2,
+  noiseIntensity = 1.75,
+  scale = 0.2,
+  rotation = 0
 }) => {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const programRef = useRef<Program | null>(null);
-  const meshRef = useRef<Mesh<Triangle> | null>(null);
-  const geometryRef = useRef<Triangle | null>(null);
-  const rendererRef = useRef<Renderer | null>(null);
-  const mouseTargetRef = useRef<[number, number]>([0, 0]);
-  const lastTimeRef = useRef<number>(0);
-  const firstResizeRef = useRef<boolean>(true);
+  const meshRef = useRef<THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>>(null!);
 
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const renderer = new Renderer({
-      dpr: dpr ?? (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1),
-      alpha: true,
-      antialias: true
-    });
-    rendererRef.current = renderer;
-    const gl = renderer.gl;
-    const canvas = gl.canvas as HTMLCanvasElement;
-
-    canvas.style.width = '100%';
-    canvas.style.height = '100%';
-    canvas.style.display = 'block';
-    container.appendChild(canvas);
-
-    const vertex = `
-attribute vec2 position;
-attribute vec2 uv;
-varying vec2 vUv;
-
-void main() {
-  vUv = uv;
-  gl_Position = vec4(position, 0.0, 1.0);
-}
-`;
-
-    const fragment = `
-#ifdef GL_ES
-precision mediump float;
-#endif
-
-uniform vec3  iResolution;
-uniform vec2  iMouse;
-uniform float iTime;
-
-uniform float uAngle;
-uniform float uNoise;
-uniform float uBlindCount;
-uniform float uSpotlightRadius;
-uniform float uSpotlightSoftness;
-uniform float uSpotlightOpacity;
-uniform float uMirror;
-uniform float uDistort;
-uniform float uShineFlip;
-uniform vec3  uColor0;
-uniform vec3  uColor1;
-uniform vec3  uColor2;
-uniform vec3  uColor3;
-uniform vec3  uColor4;
-uniform vec3  uColor5;
-uniform vec3  uColor6;
-uniform vec3  uColor7;
-uniform int   uColorCount;
-
-varying vec2 vUv;
-
-float rand(vec2 co){
-  return fract(sin(dot(co, vec2(12.9898,78.233))) * 43758.5453);
-}
-
-vec2 rotate2D(vec2 p, float a){
-  float c = cos(a);
-  float s = sin(a);
-  return mat2(c, -s, s, c) * p;
-}
-
-vec3 getGradientColor(float t){
-  float tt = clamp(t, 0.0, 1.0);
-  int count = uColorCount;
-  if (count < 2) count = 2;
-  float scaled = tt * float(count - 1);
-  float seg = floor(scaled);
-  float f = fract(scaled);
-
-  if (seg < 1.0) return mix(uColor0, uColor1, f);
-  if (seg < 2.0 && count > 2) return mix(uColor1, uColor2, f);
-  if (seg < 3.0 && count > 3) return mix(uColor2, uColor3, f);
-  if (seg < 4.0 && count > 4) return mix(uColor3, uColor4, f);
-  if (seg < 5.0 && count > 5) return mix(uColor4, uColor5, f);
-  if (seg < 6.0 && count > 6) return mix(uColor5, uColor6, f);
-  if (seg < 7.0 && count > 7) return mix(uColor6, uColor7, f);
-  if (count > 7) return uColor7;
-  if (count > 6) return uColor6;
-  if (count > 5) return uColor5;
-  if (count > 4) return uColor4;
-  if (count > 3) return uColor3;
-  if (count > 2) return uColor2;
-  return uColor1;
-}
-
-void mainImage( out vec4 fragColor, in vec2 fragCoord )
-{
-    vec2 uv0 = fragCoord.xy / iResolution.xy;
-
-    float aspect = iResolution.x / iResolution.y;
-    vec2 p = uv0 * 2.0 - 1.0;
-    p.x *= aspect;
-    vec2 pr = rotate2D(p, uAngle);
-    pr.x /= aspect;
-    vec2 uv = pr * 0.5 + 0.5;
-
-    vec2 uvMod = uv;
-    if (uDistort > 0.0) {
-      float a = uvMod.y * 6.0;
-      float b = uvMod.x * 6.0;
-      float w = 0.01 * uDistort;
-      uvMod.x += sin(a) * w;
-      uvMod.y += cos(b) * w;
-    }
-    float t = uvMod.x;
-    if (uMirror > 0.5) {
-      t = 1.0 - abs(1.0 - 2.0 * fract(t));
-    }
-    vec3 base = getGradientColor(t);
-
-    vec2 offset = vec2(iMouse.x/iResolution.x, iMouse.y/iResolution.y);
-  float d = length(uv0 - offset);
-  float r = max(uSpotlightRadius, 1e-4);
-  float dn = d / r;
-  float spot = (1.0 - 2.0 * pow(dn, uSpotlightSoftness)) * uSpotlightOpacity;
-  vec3 cir = vec3(spot);
-  float stripe = fract(uvMod.x * max(uBlindCount, 1.0));
-  if (uShineFlip > 0.5) stripe = 1.0 - stripe;
-    vec3 ran = vec3(stripe);
-
-    vec3 col = cir + base - ran;
-    col += (rand(gl_FragCoord.xy + iTime) - 0.5) * uNoise;
-
-    fragColor = vec4(col, 1.0);
-}
-
-void main() {
-    vec4 color;
-    mainImage(color, vUv * iResolution.xy);
-    gl_FragColor = color;
-}
-`;
-
-    const { arr: colorArr, count: colorCount } = prepStops(gradientColors);
-    const uniforms: {
-      iResolution: { value: [number, number, number] };
-      iMouse: { value: [number, number] };
-      iTime: { value: number };
-      uAngle: { value: number };
-      uNoise: { value: number };
-      uBlindCount: { value: number };
-      uSpotlightRadius: { value: number };
-      uSpotlightSoftness: { value: number };
-      uSpotlightOpacity: { value: number };
-      uMirror: { value: number };
-      uDistort: { value: number };
-      uShineFlip: { value: number };
-      uColor0: { value: [number, number, number] };
-      uColor1: { value: [number, number, number] };
-      uColor2: { value: [number, number, number] };
-      uColor3: { value: [number, number, number] };
-      uColor4: { value: [number, number, number] };
-      uColor5: { value: [number, number, number] };
-      uColor6: { value: [number, number, number] };
-      uColor7: { value: [number, number, number] };
-      uColorCount: { value: number };
-    } = {
-      iResolution: {
-        value: [gl.drawingBufferWidth, gl.drawingBufferHeight, 1]
-      },
-      iMouse: { value: [0, 0] },
-      iTime: { value: 0 },
-      uAngle: { value: (angle * Math.PI) / 180 },
-      uNoise: { value: noise },
-      uBlindCount: { value: Math.max(1, blindCount) },
-      uSpotlightRadius: { value: spotlightRadius },
-      uSpotlightSoftness: { value: spotlightSoftness },
-      uSpotlightOpacity: { value: spotlightOpacity },
-      uMirror: { value: mirrorGradient ? 1 : 0 },
-      uDistort: { value: distortAmount },
-      uShineFlip: { value: shineDirection === 'right' ? 1 : 0 },
-      uColor0: { value: colorArr[0] },
-      uColor1: { value: colorArr[1] },
-      uColor2: { value: colorArr[2] },
-      uColor3: { value: colorArr[3] },
-      uColor4: { value: colorArr[4] },
-      uColor5: { value: colorArr[5] },
-      uColor6: { value: colorArr[6] },
-      uColor7: { value: colorArr[7] },
-      uColorCount: { value: colorCount }
-    };
-
-    const program = new Program(gl, {
-      vertex,
-      fragment,
-      uniforms
-    });
-    programRef.current = program;
-
-    const geometry = new Triangle(gl);
-    geometryRef.current = geometry;
-    const mesh = new Mesh(gl, { geometry, program });
-    meshRef.current = mesh;
-
-    const resize = () => {
-      const rect = container.getBoundingClientRect();
-      renderer.setSize(rect.width, rect.height);
-      uniforms.iResolution.value = [gl.drawingBufferWidth, gl.drawingBufferHeight, 1];
-
-      if (blindMinWidth && blindMinWidth > 0) {
-        const maxByMinWidth = Math.max(1, Math.floor(rect.width / blindMinWidth));
-
-        const effective = blindCount ? Math.min(blindCount, maxByMinWidth) : maxByMinWidth;
-        uniforms.uBlindCount.value = Math.max(1, effective);
-      } else {
-        uniforms.uBlindCount.value = Math.max(1, blindCount);
-      }
-
-      if (firstResizeRef.current) {
-        firstResizeRef.current = false;
-        const cx = gl.drawingBufferWidth / 2;
-        const cy = gl.drawingBufferHeight / 2;
-        uniforms.iMouse.value = [cx, cy];
-        mouseTargetRef.current = [cx, cy];
-      }
-    };
-
-    resize();
-    const ro = new ResizeObserver(resize);
-    ro.observe(container);
-
-    const onPointerMove = (e: PointerEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      const scale = (renderer as unknown as { dpr?: number }).dpr || 1;
-      const x = (e.clientX - rect.left) * scale;
-      const y = (rect.height - (e.clientY - rect.top)) * scale;
-      mouseTargetRef.current = [x, y];
-      if (mouseDampening <= 0) {
-        uniforms.iMouse.value = [x, y];
-      }
-    };
-    canvas.addEventListener('pointermove', onPointerMove);
-
-    const loop = (t: number) => {
-      rafRef.current = requestAnimationFrame(loop);
-      uniforms.iTime.value = t * 0.001;
-      if (mouseDampening > 0) {
-        if (!lastTimeRef.current) lastTimeRef.current = t;
-        const dt = (t - lastTimeRef.current) / 1000;
-        lastTimeRef.current = t;
-        const tau = Math.max(1e-4, mouseDampening);
-        let factor = 1 - Math.exp(-dt / tau);
-        if (factor > 1) factor = 1;
-        const target = mouseTargetRef.current;
-        const cur = uniforms.iMouse.value;
-        cur[0] += (target[0] - cur[0]) * factor;
-        cur[1] += (target[1] - cur[1]) * factor;
-      } else {
-        lastTimeRef.current = t;
-      }
-      if (!paused && programRef.current && meshRef.current) {
-        try {
-          renderer.render({ scene: meshRef.current });
-        } catch (e) {
-          console.error(e);
+  const beamMaterial = useMemo(
+    () =>
+      extendMaterial(THREE.MeshStandardMaterial, {
+        header: `
+  varying vec3 vEye;
+  varying float vNoise;
+  varying vec2 vUv;
+  varying vec3 vPosition;
+  uniform float time;
+  uniform float uSpeed;
+  uniform float uNoiseIntensity;
+  uniform float uScale;
+  ${noise}`,
+        vertexHeader: `
+  float getPos(vec3 pos) {
+    vec3 noisePos =
+      vec3(pos.x * 0., pos.y - uv.y, pos.z + time * uSpeed * 3.) * uScale;
+    return cnoise(noisePos);
+  }
+  vec3 getCurrentPos(vec3 pos) {
+    vec3 newpos = pos;
+    newpos.z += getPos(pos);
+    return newpos;
+  }
+  vec3 getNormal(vec3 pos) {
+    vec3 curpos = getCurrentPos(pos);
+    vec3 nextposX = getCurrentPos(pos + vec3(0.01, 0.0, 0.0));
+    vec3 nextposZ = getCurrentPos(pos + vec3(0.0, -0.01, 0.0));
+    vec3 tangentX = normalize(nextposX - curpos);
+    vec3 tangentZ = normalize(nextposZ - curpos);
+    return normalize(cross(tangentZ, tangentX));
+  }`,
+        fragmentHeader: '',
+        vertex: {
+          '#include <begin_vertex>': `transformed.z += getPos(transformed.xyz);`,
+          '#include <beginnormal_vertex>': `objectNormal = getNormal(position.xyz);`
+        },
+        fragment: {
+          '#include <dithering_fragment>': `
+    float randomNoise = noise(gl_FragCoord.xy);
+    gl_FragColor.rgb -= randomNoise / 15. * uNoiseIntensity;`
+        },
+        material: { fog: true },
+        uniforms: {
+          diffuse: new THREE.Color(...hexToNormalizedRGB('#000000')),
+          time: { shared: true, mixed: true, linked: true, value: 0 },
+          roughness: 0.3,
+          metalness: 0.3,
+          uSpeed: { shared: true, mixed: true, linked: true, value: speed },
+          envMapIntensity: 10,
+          uNoiseIntensity: noiseIntensity,
+          uScale: scale
         }
-      }
-    };
-    rafRef.current = requestAnimationFrame(loop);
-
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      canvas.removeEventListener('pointermove', onPointerMove);
-      ro.disconnect();
-      if (canvas.parentElement === container) {
-        container.removeChild(canvas);
-      }
-      const callIfFn = <T extends object, K extends keyof T>(obj: T | null, key: K) => {
-        if (obj && typeof obj[key] === 'function') {
-          (obj[key] as unknown as () => void).call(obj);
-        }
-      };
-      callIfFn(programRef.current, 'remove');
-      callIfFn(geometryRef.current, 'remove');
-      callIfFn(meshRef.current as unknown as { remove?: () => void }, 'remove');
-      callIfFn(rendererRef.current as unknown as { destroy?: () => void }, 'destroy');
-      programRef.current = null;
-      geometryRef.current = null;
-      meshRef.current = null;
-      rendererRef.current = null;
-    };
-  }, [
-    dpr,
-    paused,
-    gradientColors,
-    angle,
-    noise,
-    blindCount,
-    blindMinWidth,
-    mouseDampening,
-    mirrorGradient,
-    spotlightRadius,
-    spotlightSoftness,
-    spotlightOpacity,
-    distortAmount,
-    shineDirection
-  ]);
+      }),
+    [speed, noiseIntensity, scale]
+  );
 
   return (
-    <div
-      ref={containerRef}
-      className={`w-full h-full overflow-hidden relative ${className}`}
-      style={{
-        ...(mixBlendMode && {
-          mixBlendMode: mixBlendMode as React.CSSProperties['mixBlendMode']
-        })
-      }}
-    />
+    <CanvasWrapper>
+      <group rotation={[0, 0, degToRad(rotation)]}>
+        <PlaneNoise ref={meshRef} material={beamMaterial} count={beamNumber} width={beamWidth} height={beamHeight} />
+        <DirLight color={lightColor} position={[0, 3, 10]} />
+      </group>
+      <ambientLight intensity={1} />
+      <color attach="background" args={['#000000']} />
+      <PerspectiveCamera makeDefault position={[0, 0, 20]} fov={30} />
+    </CanvasWrapper>
   );
 };
 
-export default GradientBlinds;
+function createStackedPlanesBufferGeometry(
+  n: number,
+  width: number,
+  height: number,
+  spacing: number,
+  heightSegments: number
+): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+  const numVertices = n * (heightSegments + 1) * 2;
+  const numFaces = n * heightSegments * 2;
+  const positions = new Float32Array(numVertices * 3);
+  const indices = new Uint32Array(numFaces * 3);
+  const uvs = new Float32Array(numVertices * 2);
+
+  let vertexOffset = 0;
+  let indexOffset = 0;
+  let uvOffset = 0;
+  const totalWidth = n * width + (n - 1) * spacing;
+  const xOffsetBase = -totalWidth / 2;
+
+  for (let i = 0; i < n; i++) {
+    const xOffset = xOffsetBase + i * (width + spacing);
+    const uvXOffset = Math.random() * 300;
+    const uvYOffset = Math.random() * 300;
+
+    for (let j = 0; j <= heightSegments; j++) {
+      const y = height * (j / heightSegments - 0.5);
+      const v0 = [xOffset, y, 0];
+      const v1 = [xOffset + width, y, 0];
+      positions.set([...v0, ...v1], vertexOffset * 3);
+
+      const uvY = j / heightSegments;
+      uvs.set([uvXOffset, uvY + uvYOffset, uvXOffset + 1, uvY + uvYOffset], uvOffset);
+
+      if (j < heightSegments) {
+        const a = vertexOffset,
+          b = vertexOffset + 1,
+          c = vertexOffset + 2,
+          d = vertexOffset + 3;
+        indices.set([a, b, c, c, b, d], indexOffset);
+        indexOffset += 6;
+      }
+      vertexOffset += 2;
+      uvOffset += 4;
+    }
+  }
+
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+const MergedPlanes = forwardRef<
+  THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>,
+  {
+    material: THREE.ShaderMaterial;
+    width: number;
+    count: number;
+    height: number;
+  }
+>(({ material, width, count, height }, ref) => {
+  const mesh = useRef<THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>>(null!);
+  useImperativeHandle(ref, () => mesh.current);
+  const geometry = useMemo(
+    () => createStackedPlanesBufferGeometry(count, width, height, 0, 100),
+    [count, width, height]
+  );
+  useFrame((_, delta) => {
+    mesh.current.material.uniforms.time.value += 0.1 * delta;
+  });
+  return <mesh ref={mesh} geometry={geometry} material={material} />;
+});
+MergedPlanes.displayName = 'MergedPlanes';
+
+const PlaneNoise = forwardRef<
+  THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>,
+  {
+    material: THREE.ShaderMaterial;
+    width: number;
+    count: number;
+    height: number;
+  }
+>((props, ref) => (
+  <MergedPlanes ref={ref} material={props.material} width={props.width} count={props.count} height={props.height} />
+));
+PlaneNoise.displayName = 'PlaneNoise';
+
+const DirLight: FC<{ position: [number, number, number]; color: string }> = ({ position, color }) => {
+  const dir = useRef<THREE.DirectionalLight>(null!);
+  useEffect(() => {
+    if (!dir.current) return;
+    const cam = dir.current.shadow.camera as THREE.Camera & {
+      top: number;
+      bottom: number;
+      left: number;
+      right: number;
+      far: number;
+    };
+    cam.top = 24;
+    cam.bottom = -24;
+    cam.left = -24;
+    cam.right = 24;
+    cam.far = 64;
+    dir.current.shadow.bias = -0.004;
+  }, []);
+  return <directionalLight ref={dir} color={color} intensity={1} position={position} />;
+};
+
+export default Beams;
