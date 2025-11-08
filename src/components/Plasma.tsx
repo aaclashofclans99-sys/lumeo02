@@ -31,8 +31,6 @@ const fragment = `#version 300 es
 precision highp float;
 uniform vec2 iResolution;
 uniform float iTime;
-uniform vec3 uCustomColor;
-uniform float uUseCustomColor;
 uniform float uSpeed;
 uniform float uDirection;
 uniform float uScale;
