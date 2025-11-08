@@ -137,12 +137,15 @@ export const Plasma: React.FC<PlasmaProps> = ({
     const program = new Program(gl, {
       vertex: vertex,
       fragment: fragment,
-      uniforms: {
+    uniforms: {
         iTime: { value: 0 },
         iResolution: { value: new Float32Array([1, 1]) },
-        uCustomColor: { value: new Float32Array(customColorRgb) },
-        uUseCustomColor: { value: useCustomColor },
         uSpeed: { value: speed * 0.4 },
+        uDirection: { value: directionMultiplier },
+        uScale: { value: scale },
+        uOpacity: { value: opacity },
+        uMouse: { value: new Float32Array([0, 0]) },
+        uMouseInteractive: { value: mouseInteractive ? 1.0 : 0.0 }
         uDirection: { value: directionMultiplier },
         uScale: { value: scale },
         uOpacity: { value: opacity },
