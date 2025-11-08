@@ -1,203 +1,209 @@
-import React, { useEffect, useRef } from 'react';
-import { Renderer, Program, Mesh, Triangle } from 'ogl';
+import { useEffect, useRef } from 'react';
+import { Renderer, Program, Mesh, Color, Triangle } from 'ogl';
 
-interface PlasmaProps {
-  color?: string;
-  speed?: number;
-  direction?: 'forward' | 'reverse' | 'pingpong';
-  scale?: number;
-  opacity?: number;
-  mouseInteractive?: boolean;
-}
-
-const hexToRgb = (hex: string): [number, number, number] => {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  if (!result) return [1, 0.5, 0.2];
-  return [parseInt(result[1], 16) / 255, parseInt(result[2], 16) / 255, parseInt(result[3], 16) / 255];
-};
-
-const vertex = `#version 300 es
-precision highp float;
+const VERT = `#version 300 es
 in vec2 position;
-in vec2 uv;
-out vec2 vUv;
 void main() {
-  vUv = uv;
   gl_Position = vec4(position, 0.0, 1.0);
 }
 `;
 
-const fragment = `#version 300 es
+const FRAG = `#version 300 es
 precision highp float;
-uniform vec2 iResolution;
-uniform float iTime;
-uniform vec3 uCustomColor;
-uniform float uUseCustomColor;
-uniform float uSpeed;
-uniform float uDirection;
-uniform float uScale;
-uniform float uOpacity;
-uniform vec2 uMouse;
-uniform float uMouseInteractive;
+
+uniform float uTime;
+uniform float uAmplitude;
+uniform vec3 uColorStops[3];
+uniform vec2 uResolution;
+uniform float uBlend;
+
 out vec4 fragColor;
 
-void mainImage(out vec4 o, vec2 C) {
-  vec2 center = iResolution.xy * 0.5;
-  C = (C - center) / uScale + center;
-  
-  vec2 mouseOffset = (uMouse - center) * 0.0002;
-  C += mouseOffset * length(C - center) * step(0.5, uMouseInteractive);
-  
-  float i, d, z, T = iTime * uSpeed * uDirection;
-  vec3 O, p, S;
-
-  for (vec2 r = iResolution.xy, Q; ++i < 60.; O += o.w/d*o.xyz) {
-    p = z*normalize(vec3(C-.5*r,r.y)); 
-    p.z -= 4.; 
-    S = p;
-    d = p.y-T;
-    
-    p.x += .4*(1.+p.y)*sin(d + p.x*0.1)*cos(.34*d + p.x*0.05); 
-    Q = p.xz *= mat2(cos(p.y+vec4(0,11,33,0)-T)); 
-    z+= d = abs(sqrt(length(Q*Q)) - .25*(5.+S.y))/3.+8e-4; 
-    o = 1.+sin(S.y+p.z*.5+S.z-length(S-p)+vec4(2,1,0,8));
-  }
-  
-  o.xyz = tanh(O/1e4);
+vec3 permute(vec3 x) {
+  return mod(((x * 34.0) + 1.0) * x, 289.0);
 }
 
-bool finite1(float x){ return !(isnan(x) || isinf(x)); }
-vec3 sanitize(vec3 c){
-  return vec3(
-    finite1(c.r) ? c.r : 0.0,
-    finite1(c.g) ? c.g : 0.0,
-    finite1(c.b) ? c.b : 0.0
+float snoise(vec2 v){
+  const vec4 C = vec4(
+      0.211324865405187, 0.366025403784439,
+      -0.577350269189626, 0.024390243902439
   );
+  vec2 i  = floor(v + dot(v, C.yy));
+  vec2 x0 = v - i + dot(i, C.xx);
+  vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+  vec4 x12 = x0.xyxy + C.xxzz;
+  x12.xy -= i1;
+  i = mod(i, 289.0);
+
+  vec3 p = permute(
+      permute(i.y + vec3(0.0, i1.y, 1.0))
+    + i.x + vec3(0.0, i1.x, 1.0)
+  );
+
+  vec3 m = max(
+      0.5 - vec3(
+          dot(x0, x0),
+          dot(x12.xy, x12.xy),
+          dot(x12.zw, x12.zw)
+      ), 
+      0.0
+  );
+  m = m * m;
+  m = m * m;
+
+  vec3 x = 2.0 * fract(p * C.www) - 1.0;
+  vec3 h = abs(x) - 0.5;
+  vec3 ox = floor(x + 0.5);
+  vec3 a0 = x - ox;
+  m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
+
+  vec3 g;
+  g.x  = a0.x  * x0.x  + h.x  * x0.y;
+  g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+  return 130.0 * dot(m, g);
+}
+
+struct ColorStop {
+  vec3 color;
+  float position;
+};
+
+#define COLOR_RAMP(colors, factor, finalColor) {              \
+  int index = 0;                                            \
+  for (int i = 0; i < 2; i++) {                               \
+     ColorStop currentColor = colors[i];                    \
+     bool isInBetween = currentColor.position <= factor;    \
+     index = int(mix(float(index), float(i), float(isInBetween))); \
+  }                                                         \
+  ColorStop currentColor = colors[index];                   \
+  ColorStop nextColor = colors[index + 1];                  \
+  float range = nextColor.position - currentColor.position; \
+  float lerpFactor = (factor - currentColor.position) / range; \
+  finalColor = mix(currentColor.color, nextColor.color, lerpFactor); \
 }
 
 void main() {
-  vec4 o = vec4(0.0);
-  mainImage(o, gl_FragCoord.xy);
-  vec3 rgb = sanitize(o.rgb);
+  vec2 uv = gl_FragCoord.xy / uResolution;
   
-  float intensity = (rgb.r + rgb.g + rgb.b) / 3.0;
-  vec3 customColor = intensity * uCustomColor;
-  vec3 finalColor = mix(rgb, customColor, step(0.5, uUseCustomColor));
+  ColorStop colors[3];
+  colors[0] = ColorStop(uColorStops[0], 0.0);
+  colors[1] = ColorStop(uColorStops[1], 0.5);
+  colors[2] = ColorStop(uColorStops[2], 1.0);
   
-  float alpha = length(rgb) * uOpacity;
-  fragColor = vec4(finalColor, alpha);
-}`;
+  vec3 rampColor;
+  COLOR_RAMP(colors, uv.x, rampColor);
+  
+  float height = snoise(vec2(uv.x * 2.0 + uTime * 0.1, uTime * 0.25)) * 0.5 * uAmplitude;
+  height = exp(height);
+  height = (uv.y * 2.0 - height + 0.2);
+  float intensity = 0.6 * height;
+  
+  float midPoint = 0.20;
+  float auroraAlpha = smoothstep(midPoint - uBlend * 0.5, midPoint + uBlend * 0.5, intensity);
+  
+  vec3 auroraColor = intensity * rampColor;
+  
+  fragColor = vec4(auroraColor * auroraAlpha, auroraAlpha);
+}
+`;
 
-export const Plasma: React.FC<PlasmaProps> = ({
-  color = '#ffffff',
-  speed = 1,
-  direction = 'forward',
-  scale = 1,
-  opacity = 1,
-  mouseInteractive = true
-}) => {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const mousePos = useRef({ x: 0, y: 0 });
+interface AuroraProps {
+  colorStops?: string[];
+  amplitude?: number;
+  blend?: number;
+  time?: number;
+  speed?: number;
+}
+
+export default function Aurora(props: AuroraProps) {
+  const { colorStops = ['#5227FF', '#7cff67', '#5227FF'], amplitude = 1.0, blend = 0.5 } = props;
+  const propsRef = useRef<AuroraProps>(props);
+  propsRef.current = props;
+
+  const ctnDom = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!containerRef.current) return;
-
-    const useCustomColor = color ? 1.0 : 0.0;
-    const customColorRgb = color ? hexToRgb(color) : [1, 1, 1];
-
-    const directionMultiplier = direction === 'reverse' ? -1.0 : 1.0;
+    const ctn = ctnDom.current;
+    if (!ctn) return;
 
     const renderer = new Renderer({
-      webgl: 2,
       alpha: true,
-      antialias: false,
-      dpr: Math.min(window.devicePixelRatio || 1, 2)
+      premultipliedAlpha: true,
+      antialias: true
     });
     const gl = renderer.gl;
-    const canvas = gl.canvas as HTMLCanvasElement;
-    canvas.style.display = 'block';
-    canvas.style.width = '100%';
-    canvas.style.height = '100%';
-    containerRef.current.appendChild(canvas);
+    gl.clearColor(0, 0, 0, 0);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.canvas.style.backgroundColor = 'transparent';
+
+    let program: Program | undefined;
+
+    function resize() {
+      if (!ctn) return;
+      const width = ctn.offsetWidth;
+      const height = ctn.offsetHeight;
+      renderer.setSize(width, height);
+      if (program) {
+        program.uniforms.uResolution.value = [width, height];
+      }
+    }
+    window.addEventListener('resize', resize);
 
     const geometry = new Triangle(gl);
+    if (geometry.attributes.uv) {
+      delete geometry.attributes.uv;
+    }
 
-    const program = new Program(gl, {
-      vertex: vertex,
-      fragment: fragment,
+    const colorStopsArray = colorStops.map(hex => {
+      const c = new Color(hex);
+      return [c.r, c.g, c.b];
+    });
+
+    program = new Program(gl, {
+      vertex: VERT,
+      fragment: FRAG,
       uniforms: {
-        iTime: { value: 0 },
-        iResolution: { value: new Float32Array([1, 1]) },
-        uCustomColor: { value: new Float32Array(customColorRgb) },
-        uUseCustomColor: { value: useCustomColor },
-        uSpeed: { value: speed * 0.4 },
-        uDirection: { value: directionMultiplier },
-        uScale: { value: scale },
-        uOpacity: { value: opacity },
-        uMouse: { value: new Float32Array([0, 0]) },
-        uMouseInteractive: { value: mouseInteractive ? 1.0 : 0.0 }
+        uTime: { value: 0 },
+        uAmplitude: { value: amplitude },
+        uColorStops: { value: colorStopsArray },
+        uResolution: { value: [ctn.offsetWidth, ctn.offsetHeight] },
+        uBlend: { value: blend }
       }
     });
 
     const mesh = new Mesh(gl, { geometry, program });
+    ctn.appendChild(gl.canvas);
 
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!mouseInteractive) return;
-      const rect = containerRef.current!.getBoundingClientRect();
-      mousePos.current.x = e.clientX - rect.left;
-      mousePos.current.y = e.clientY - rect.top;
-      const mouseUniform = program.uniforms.uMouse.value as Float32Array;
-      mouseUniform[0] = mousePos.current.x;
-      mouseUniform[1] = mousePos.current.y;
-    };
-
-    if (mouseInteractive) {
-      containerRef.current.addEventListener('mousemove', handleMouseMove);
-    }
-
-    const setSize = () => {
-      const rect = containerRef.current!.getBoundingClientRect();
-      const width = Math.max(1, Math.floor(rect.width));
-      const height = Math.max(1, Math.floor(rect.height));
-      renderer.setSize(width, height);
-      const res = program.uniforms.iResolution.value as Float32Array;
-      res[0] = gl.drawingBufferWidth;
-      res[1] = gl.drawingBufferHeight;
-    };
-
-    const ro = new ResizeObserver(setSize);
-    ro.observe(containerRef.current);
-    setSize();
-
-    let raf = 0;
-    const t0 = performance.now();
-    const loop = (t: number) => {
-      let timeValue = (t - t0) * 0.001;
-
-      if (direction === 'pingpong') {
-        const cycle = Math.sin(timeValue * 0.5) * directionMultiplier;
-        (program.uniforms.uDirection as any).value = cycle;
+    let animateId = 0;
+    const update = (t: number) => {
+      animateId = requestAnimationFrame(update);
+      const { time = t * 0.01, speed = 1.0 } = propsRef.current;
+      if (program) {
+        program.uniforms.uTime.value = time * speed * 0.1;
+        program.uniforms.uAmplitude.value = propsRef.current.amplitude ?? 1.0;
+        program.uniforms.uBlend.value = propsRef.current.blend ?? blend;
+        const stops = propsRef.current.colorStops ?? colorStops;
+        program.uniforms.uColorStops.value = stops.map((hex: string) => {
+          const c = new Color(hex);
+          return [c.r, c.g, c.b];
+        });
+        renderer.render({ scene: mesh });
       }
-
-      (program.uniforms.iTime as any).value = timeValue;
-      renderer.render({ scene: mesh });
-      raf = requestAnimationFrame(loop);
     };
-    raf = requestAnimationFrame(loop);
+    animateId = requestAnimationFrame(update);
+
+    resize();
 
     return () => {
-      cancelAnimationFrame(raf);
-      ro.disconnect();
-      if (mouseInteractive && containerRef.current) {
-        containerRef.current.removeEventListener('mousemove', handleMouseMove);
+      cancelAnimationFrame(animateId);
+      window.removeEventListener('resize', resize);
+      if (ctn && gl.canvas.parentNode === ctn) {
+        ctn.removeChild(gl.canvas);
       }
-      try {
-        containerRef.current?.removeChild(canvas);
-      } catch {}
+      gl.getExtension('WEBGL_lose_context')?.loseContext();
     };
-  }, [color, speed, direction, scale, opacity, mouseInteractive]);
+  }, [amplitude]);
 
-  return <div ref={containerRef} className="w-full h-full relative overflow-hidden" />;
-};
-
-export default Plasma;
+  return <div ref={ctnDom} className="w-full h-full" />;
+}
