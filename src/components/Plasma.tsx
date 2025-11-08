@@ -1,151 +1,203 @@
-/* eslint-disable react/no-unknown-property */
-import React, { forwardRef, useMemo, useRef, useLayoutEffect } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Color, Mesh, ShaderMaterial } from 'three';
+import React, { useEffect, useRef } from 'react';
+import { Renderer, Program, Mesh, Triangle } from 'ogl';
 
-type NormalizedRGB = [number, number, number];
-
-const hexToNormalizedRGB = (hex: string): NormalizedRGB => {
-  const clean = hex.replace('#', '');
-  const r = parseInt(clean.slice(0, 2), 16) / 255;
-  const g = parseInt(clean.slice(2, 4), 16) / 255;
-  const b = parseInt(clean.slice(4, 6), 16) / 255;
-  return [r, g, b];
-};
-
-interface SilkUniforms {
-  uSpeed: { value: number };
-  uScale: { value: number };
-  uNoiseIntensity: { value: number };
-  uColor: { value: Color };
-  uRotation: { value: number };
-  uTime: { value: number };
-}
-
-const vertexShader = `
-varying vec2 vUv;
-varying vec3 vPosition;
-
-void main() {
-  vPosition = position;
-  vUv = uv;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}
-`;
-
-const fragmentShader = `
-varying vec2 vUv;
-varying vec3 vPosition;
-
-uniform float uTime;
-uniform vec3  uColor;
-uniform float uSpeed;
-uniform float uScale;
-uniform float uRotation;
-uniform float uNoiseIntensity;
-
-const float e = 2.71828182845904523536;
-
-float noise(vec2 texCoord) {
-  float G = e;
-  vec2  r = (G * sin(G * texCoord));
-  return fract(r.x * r.y * (1.0 + texCoord.x));
-}
-
-vec2 rotateUvs(vec2 uv, float angle) {
-  float c = cos(angle);
-  float s = sin(angle);
-  mat2  rot = mat2(c, -s, s, c);
-  return rot * uv;
-}
-
-void main() {
-  float rnd        = noise(gl_FragCoord.xy);
-  vec2  uv         = rotateUvs(vUv * uScale, uRotation);
-  vec2  tex        = uv * uScale;
-  float tOffset    = uSpeed * uTime;
-
-  tex.y += 0.03 * sin(8.0 * tex.x - tOffset);
-
-  float pattern = 0.6 +
-                  0.4 * sin(5.0 * (tex.x + tex.y +
-                                   cos(3.0 * tex.x + 5.0 * tex.y) +
-                                   0.02 * tOffset) +
-                           sin(20.0 * (tex.x + tex.y - 0.1 * tOffset)));
-
-  float distFromCenter = length(vUv - 0.5) * 1.5;
-  float vignette = 1.0 - smoothstep(0.0, 1.0, distFromCenter);
-  float edgeBlur = smoothstep(1.0, 0.5, distFromCenter);
-
-  vec4 col = vec4(uColor, 1.0) * vec4(pattern);
-  col.rgb += vec3(0.3, 0.15, 0.5) * pattern * 0.7;
-  col.rgb *= (0.8 + 0.2 * sin(uTime * 0.5));
-  col.a = mix(0.0, 0.85, vignette * edgeBlur);
-
-  gl_FragColor = col;
-}
-`;
-
-interface SilkPlaneProps {
-  uniforms: SilkUniforms;
-}
-
-const SilkPlane = forwardRef<Mesh, SilkPlaneProps>(function SilkPlane({ uniforms }, ref) {
-  const { viewport } = useThree();
-
-  useLayoutEffect(() => {
-    const mesh = ref as React.MutableRefObject<Mesh | null>;
-    if (mesh.current) {
-      mesh.current.scale.set(viewport.width * 1.2, viewport.height * 1.2, 1);
-    }
-  }, [ref, viewport]);
-
-  useFrame((_state, delta: number) => {
-    const mesh = ref as React.MutableRefObject<Mesh | null>;
-    if (mesh.current && mesh.current.material instanceof ShaderMaterial) {
-      const material = mesh.current.material as ShaderMaterial;
-      const uniforms = material.uniforms as unknown as SilkUniforms;
-      uniforms.uTime.value += 0.1 * delta;
-    }
-  });
-
-  return (
-    <mesh ref={ref}>
-      <planeGeometry args={[1, 1, 1, 1]} />
-      <shaderMaterial uniforms={uniforms} vertexShader={vertexShader} fragmentShader={fragmentShader} transparent />
-    </mesh>
-  );
-});
-SilkPlane.displayName = 'SilkPlane';
-
-export interface SilkProps {
-  speed?: number;
-  scale?: number;
+interface PlasmaProps {
   color?: string;
-  noiseIntensity?: number;
-  rotation?: number;
+  speed?: number;
+  direction?: 'forward' | 'reverse' | 'pingpong';
+  scale?: number;
+  opacity?: number;
+  mouseInteractive?: boolean;
 }
 
-const Silk: React.FC<SilkProps> = ({ speed = 0.8, scale = 1.2, color = '#7c3aed', noiseIntensity = 1.2, rotation = 0 }) => {
-  const meshRef = useRef<Mesh>(null);
-
-  const uniforms = useMemo<SilkUniforms>(
-    () => ({
-      uSpeed: { value: speed },
-      uScale: { value: scale },
-      uNoiseIntensity: { value: noiseIntensity },
-      uColor: { value: new Color(...hexToNormalizedRGB(color)) },
-      uRotation: { value: rotation },
-      uTime: { value: 0 }
-    }),
-    [speed, scale, noiseIntensity, color, rotation]
-  );
-
-  return (
-    <Canvas dpr={[1, 2]} frameloop="always" style={{ position: 'absolute', inset: 0 }}>
-      <SilkPlane ref={meshRef} uniforms={uniforms} />
-    </Canvas>
-  );
+const hexToRgb = (hex: string): [number, number, number] => {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!result) return [1, 0.5, 0.2];
+  return [parseInt(result[1], 16) / 255, parseInt(result[2], 16) / 255, parseInt(result[3], 16) / 255];
 };
 
-export default Silk;
+const vertex = `#version 300 es
+precision highp float;
+in vec2 position;
+in vec2 uv;
+out vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = vec4(position, 0.0, 1.0);
+}
+`;
+
+const fragment = `#version 300 es
+precision highp float;
+uniform vec2 iResolution;
+uniform float iTime;
+uniform vec3 uCustomColor;
+uniform float uUseCustomColor;
+uniform float uSpeed;
+uniform float uDirection;
+uniform float uScale;
+uniform float uOpacity;
+uniform vec2 uMouse;
+uniform float uMouseInteractive;
+out vec4 fragColor;
+
+void mainImage(out vec4 o, vec2 C) {
+  vec2 center = iResolution.xy * 0.5;
+  C = (C - center) / uScale + center;
+
+  vec2 mouseOffset = (uMouse - center) * 0.0002;
+  C += mouseOffset * length(C - center) * step(0.5, uMouseInteractive);
+
+  float i, d, z, T = iTime * uSpeed * uDirection;
+  vec3 O, p, S;
+
+  for (vec2 r = iResolution.xy, Q; ++i < 60.; O += o.w/d*o.xyz) {
+    p = z*normalize(vec3(C-.5*r,r.y));
+    p.z -= 4.;
+    S = p;
+    d = p.y-T;
+
+    p.x += .4*(1.+p.y)*sin(d + p.x*0.1)*cos(.34*d + p.x*0.05);
+    Q = p.xz *= mat2(cos(p.y+vec4(0,11,33,0)-T));
+    z+= d = abs(sqrt(length(Q*Q)) - .25*(5.+S.y))/3.+8e-4;
+    o = 1.+sin(S.y+p.z*.5+S.z-length(S-p)+vec4(2,1,0,8));
+  }
+
+  o.xyz = tanh(O/1e4);
+}
+
+bool finite1(float x){ return !(isnan(x) || isinf(x)); }
+vec3 sanitize(vec3 c){
+  return vec3(
+    finite1(c.r) ? c.r : 0.0,
+    finite1(c.g) ? c.g : 0.0,
+    finite1(c.b) ? c.b : 0.0
+  );
+}
+
+void main() {
+  vec4 o = vec4(0.0);
+  mainImage(o, gl_FragCoord.xy);
+  vec3 rgb = sanitize(o.rgb);
+
+  float intensity = (rgb.r + rgb.g + rgb.b) / 3.0;
+  vec3 customColor = intensity * uCustomColor;
+  vec3 finalColor = mix(rgb, customColor, step(0.5, uUseCustomColor));
+
+  float alpha = length(rgb) * uOpacity;
+  fragColor = vec4(finalColor, alpha);
+}`;
+
+export const Plasma: React.FC<PlasmaProps> = ({
+  color = '#ffffff',
+  speed = 1,
+  direction = 'forward',
+  scale = 1,
+  opacity = 1,
+  mouseInteractive = true
+}) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mousePos = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const useCustomColor = color ? 1.0 : 0.0;
+    const customColorRgb = color ? hexToRgb(color) : [1, 1, 1];
+
+    const directionMultiplier = direction === 'reverse' ? -1.0 : 1.0;
+
+    const renderer = new Renderer({
+      webgl: 2,
+      alpha: true,
+      antialias: false,
+      dpr: Math.min(window.devicePixelRatio || 1, 2)
+    });
+    const gl = renderer.gl;
+    const canvas = gl.canvas as HTMLCanvasElement;
+    canvas.style.display = 'block';
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    containerRef.current.appendChild(canvas);
+
+    const geometry = new Triangle(gl);
+
+    const program = new Program(gl, {
+      vertex: vertex,
+      fragment: fragment,
+      uniforms: {
+        iTime: { value: 0 },
+        iResolution: { value: new Float32Array([1, 1]) },
+        uCustomColor: { value: new Float32Array(customColorRgb) },
+        uUseCustomColor: { value: useCustomColor },
+        uSpeed: { value: speed * 0.4 },
+        uDirection: { value: directionMultiplier },
+        uScale: { value: scale },
+        uOpacity: { value: opacity },
+        uMouse: { value: new Float32Array([0, 0]) },
+        uMouseInteractive: { value: mouseInteractive ? 1.0 : 0.0 }
+      }
+    });
+
+    const mesh = new Mesh(gl, { geometry, program });
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!mouseInteractive) return;
+      const rect = containerRef.current!.getBoundingClientRect();
+      mousePos.current.x = e.clientX - rect.left;
+      mousePos.current.y = e.clientY - rect.top;
+      const mouseUniform = program.uniforms.uMouse.value as Float32Array;
+      mouseUniform[0] = mousePos.current.x;
+      mouseUniform[1] = mousePos.current.y;
+    };
+
+    if (mouseInteractive) {
+      containerRef.current.addEventListener('mousemove', handleMouseMove);
+    }
+
+    const setSize = () => {
+      const rect = containerRef.current!.getBoundingClientRect();
+      const width = Math.max(1, Math.floor(rect.width));
+      const height = Math.max(1, Math.floor(rect.height));
+      renderer.setSize(width, height);
+      const res = program.uniforms.iResolution.value as Float32Array;
+      res[0] = gl.drawingBufferWidth;
+      res[1] = gl.drawingBufferHeight;
+    };
+
+    const ro = new ResizeObserver(setSize);
+    ro.observe(containerRef.current);
+    setSize();
+
+    let raf = 0;
+    const t0 = performance.now();
+    const loop = (t: number) => {
+      let timeValue = (t - t0) * 0.001;
+
+      if (direction === 'pingpong') {
+        const cycle = Math.sin(timeValue * 0.5) * directionMultiplier;
+        (program.uniforms.uDirection as any).value = cycle;
+      }
+
+      (program.uniforms.iTime as any).value = timeValue;
+      renderer.render({ scene: mesh });
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      if (mouseInteractive && containerRef.current) {
+        containerRef.current.removeEventListener('mousemove', handleMouseMove);
+      }
+      try {
+        containerRef.current?.removeChild(canvas);
+      } catch {}
+    };
+  }, [color, speed, direction, scale, opacity, mouseInteractive]);
+
+  return <div ref={containerRef} className="w-full h-full relative overflow-hidden" />;
+};
+
+export default Plasma;

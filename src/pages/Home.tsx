@@ -32,78 +32,42 @@ export default function Home({ onNavigate }: HomeProps) {
 
   return (
     <div className="min-h-screen">
-      <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-[#0d1117]">
-        <div className="absolute inset-0 z-0">
+      <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
+        <div className="absolute inset-0">
           <Plasma
-            color="#7c3aed"
-            speed={0.8}
-            scale={1.2}
-            noiseIntensity={1.2}
+            color="#2563eb"
+            speed={0.6}
+            direction="forward"
+            scale={1.1}
+            opacity={0.5}
+            mouseInteractive={true}
           />
         </div>
+        <div className="absolute inset-0 bg-gradient-to-br from-[#0f172a]/80 via-[#0d1117]/70 to-[#1e3a8a]/80"></div>
 
-        <div className="absolute inset-0 z-1 bg-gradient-to-br from-[#0f172a]/70 via-[#0d1117]/60 to-[#1e1b4b]/70"></div>
-
-        <div className="absolute inset-0 z-2 bg-radial-gradient opacity-30" style={{
-          background: 'radial-gradient(ellipse at center, rgba(124, 58, 237, 0.1) 0%, transparent 70%)'
-        }}></div>
-
-        <div className="relative z-10 max-w-4xl mx-auto px-6 text-center py-20">
-          <div className="mb-6 animate-slide-up" style={{ animationDelay: '0.1s' }}>
-            <span className="inline-block px-4 py-2 bg-purple-500/10 border border-purple-500/20 rounded-full text-purple-300 text-sm font-medium">
-              Digital Excellence
-            </span>
-          </div>
-
+        <div className="relative z-10 max-w-7x1 mx-auto px-6 text-center">
           <h1
-            className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-black text-[#f1f5f9] mb-6 leading-tight animate-slide-up"
-            style={{
-              fontFamily: 'system-ui, -apple-system, sans-serif',
-              fontWeight: 900,
-              letterSpacing: '-0.02em',
-              animationDelay: '0.2s'
-            }}
+            className="text-6xl md:text-7xl font-bold text-[#f1f5f9] mb-8 animate-fade-in"
+            style={{ fontFamily: 'Space Grotesk, sans-serif' }}
           >
-            Boast Your Business
-            <span className="block bg-gradient-to-r from-[#7c3aed] via-[#a78bfa] to-[#7c3aed] bg-clip-text text-transparent animate-glow-pulse">
-              With Premium Websites
-            </span>
+            Boast Your Business With <br /> A Website that converts <br /> & scales.
           </h1>
-
-          <p className="text-lg sm:text-xl text-[#cbd5e1] mb-10 max-w-2xl mx-auto leading-relaxed animate-slide-up" style={{ animationDelay: '0.3s' }}>
-            Websites that convert visitors into customers. Built with precision, designed for scale, and optimized for growth.
+          <p className="text-xl text-[#94a3b8] mb-10 max-w-2xl mx-auto">
+            LumeoDigital helps startups and small businesses grow online with clean, responsive, and high-performance websites.
           </p>
-
-          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center animate-slide-up" style={{ animationDelay: '0.4s' }}>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <button
               onClick={() => onNavigate('portfolio')}
-              className="px-8 sm:px-10 py-4 rounded-xl bg-gradient-to-r from-[#7c3aed] to-[#a78bfa] text-white font-semibold hover:shadow-[0_0_40px_rgba(124,58,237,0.6)] hover:scale-105 transition-all duration-300 transform backdrop-blur-sm"
+              className="px-8 py-4 rounded-full bg-gradient-to-r from-[#2563eb] to-[#1e3a8a] text-[#f1f5f9] font-medium hover:scale-105 hover:shadow-[0_0_30px_rgba(37,99,235,0.6)] transition-all"
             >
               View Our Work
             </button>
             <button
               onClick={() => onNavigate('contact')}
-              className="px-8 sm:px-10 py-4 rounded-xl border border-[#7c3aed]/30 bg-[#1e1b4b]/40 text-[#e9d5ff] font-semibold hover:bg-[#7c3aed]/10 hover:border-[#7c3aed]/60 hover:scale-105 transition-all duration-300 backdrop-blur-sm"
+              className="px-8 py-4 rounded-full bg-[#1e293b] text-[#f1f5f9] font-medium hover:bg-[#1e3a8a] hover:scale-105 transition-all backdrop-blur-sm"
             >
-              Schedule Call
+              Book a Call
             </button>
-          </div>
-
-          <div className="mt-16 flex justify-center gap-8 text-center opacity-70 animate-float" style={{ animationDelay: '0.5s' }}>
-            <div>
-              <div className="text-2xl font-bold text-[#7c3aed]">100+</div>
-              <div className="text-sm text-[#94a3b8]">Sites Built</div>
-            </div>
-            <div className="h-12 w-px bg-gradient-to-b from-transparent via-[#7c3aed]/30 to-transparent"></div>
-            <div>
-              <div className="text-2xl font-bold text-[#7c3aed]">50+</div>
-              <div className="text-sm text-[#94a3b8]">Happy Clients</div>
-            </div>
-            <div className="h-12 w-px bg-gradient-to-b from-transparent via-[#7c3aed]/30 to-transparent"></div>
-            <div>
-              <div className="text-2xl font-bold text-[#7c3aed]">5+</div>
-              <div className="text-sm text-[#94a3b8]">Years Experience</div>
-            </div>
           </div>
         </div>
       </section>
