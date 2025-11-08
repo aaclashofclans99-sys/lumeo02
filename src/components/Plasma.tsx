@@ -1,372 +1,460 @@
-import { forwardRef, useImperativeHandle, useEffect, useRef, useMemo, FC, ReactNode } from 'react';
+import React, { useEffect, useRef } from 'react';
+import { Renderer, Program, Mesh, Triangle, Texture } from 'ogl';
 
-import * as THREE from 'three';
+type Offset = { x?: number | string; y?: number | string };
+type AnimationType = 'rotate' | 'rotate3d' | 'hover';
 
-import { Canvas, useFrame } from '@react-three/fiber';
-import { PerspectiveCamera } from '@react-three/drei';
-import { degToRad } from 'three/src/math/MathUtils.js';
-
-type UniformValue = THREE.IUniform<unknown> | unknown;
-
-interface ExtendMaterialConfig {
-  header: string;
-  vertexHeader?: string;
-  fragmentHeader?: string;
-  material?: THREE.MeshPhysicalMaterialParameters & { fog?: boolean };
-  uniforms?: Record<string, UniformValue>;
-  vertex?: Record<string, string>;
-  fragment?: Record<string, string>;
-}
-
-type ShaderWithDefines = THREE.ShaderLibShader & {
-  defines?: Record<string, string | number | boolean>;
+export type PrismaticBurstProps = {
+  intensity?: number;
+  speed?: number;
+  animationType?: AnimationType;
+  colors?: string[];
+  distort?: number;
+  paused?: boolean;
+  offset?: Offset;
+  hoverDampness?: number;
+  rayCount?: number;
+  mixBlendMode?: React.CSSProperties['mixBlendMode'] | 'none';
 };
 
-function extendMaterial<T extends THREE.Material = THREE.Material>(
-  BaseMaterial: new (params?: THREE.MaterialParameters) => T,
-  cfg: ExtendMaterialConfig
-): THREE.ShaderMaterial {
-  const physical = THREE.ShaderLib.physical as ShaderWithDefines;
-  const { vertexShader: baseVert, fragmentShader: baseFrag, uniforms: baseUniforms } = physical;
-  const baseDefines = physical.defines ?? {};
-
-  const uniforms: Record<string, THREE.IUniform> = THREE.UniformsUtils.clone(baseUniforms);
-
-  const defaults = new BaseMaterial(cfg.material || {}) as T & {
-    color?: THREE.Color;
-    roughness?: number;
-    metalness?: number;
-    envMap?: THREE.Texture;
-    envMapIntensity?: number;
-  };
-
-  if (defaults.color) uniforms.diffuse.value = defaults.color;
-  if ('roughness' in defaults) uniforms.roughness.value = defaults.roughness;
-  if ('metalness' in defaults) uniforms.metalness.value = defaults.metalness;
-  if ('envMap' in defaults) uniforms.envMap.value = defaults.envMap;
-  if ('envMapIntensity' in defaults) uniforms.envMapIntensity.value = defaults.envMapIntensity;
-
-  Object.entries(cfg.uniforms ?? {}).forEach(([key, u]) => {
-    uniforms[key] =
-      u !== null && typeof u === 'object' && 'value' in u
-        ? (u as THREE.IUniform<unknown>)
-        : ({ value: u } as THREE.IUniform<unknown>);
-  });
-
-  let vert = `${cfg.header}\n${cfg.vertexHeader ?? ''}\n${baseVert}`;
-  let frag = `${cfg.header}\n${cfg.fragmentHeader ?? ''}\n${baseFrag}`;
-
-  for (const [inc, code] of Object.entries(cfg.vertex ?? {})) {
-    vert = vert.replace(inc, `${inc}\n${code}`);
-  }
-  for (const [inc, code] of Object.entries(cfg.fragment ?? {})) {
-    frag = frag.replace(inc, `${inc}\n${code}`);
-  }
-
-  const mat = new THREE.ShaderMaterial({
-    defines: { ...baseDefines },
-    uniforms,
-    vertexShader: vert,
-    fragmentShader: frag,
-    lights: true,
-    fog: !!cfg.material?.fog
-  });
-
-  return mat;
-}
-
-const CanvasWrapper: FC<{ children: ReactNode }> = ({ children }) => (
-  <Canvas dpr={[1, 2]} frameloop="always" className="w-full h-full relative">
-    {children}
-  </Canvas>
-);
-
-const hexToNormalizedRGB = (hex: string): [number, number, number] => {
-  const clean = hex.replace('#', '');
-  const r = parseInt(clean.substring(0, 2), 16);
-  const g = parseInt(clean.substring(2, 4), 16);
-  const b = parseInt(clean.substring(4, 6), 16);
-  return [r / 255, g / 255, b / 255];
-};
-
-const noise = `
-float random (in vec2 st) {
-    return fract(sin(dot(st.xy,
-                         vec2(12.9898,78.233)))*
-        43758.5453123);
-}
-float noise (in vec2 st) {
-    vec2 i = floor(st);
-    vec2 f = fract(st);
-    float a = random(i);
-    float b = random(i + vec2(1.0, 0.0));
-    float c = random(i + vec2(0.0, 1.0));
-    float d = random(i + vec2(1.0, 1.0));
-    vec2 u = f * f * (3.0 - 2.0 * f);
-    return mix(a, b, u.x) +
-           (c - a)* u.y * (1.0 - u.x) +
-           (d - b) * u.x * u.y;
-}
-vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
-vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
-vec3 fade(vec3 t) {return t*t*t*(t*(t*6.0-15.0)+10.0);}
-float cnoise(vec3 P){
-  vec3 Pi0 = floor(P);
-  vec3 Pi1 = Pi0 + vec3(1.0);
-  Pi0 = mod(Pi0, 289.0);
-  Pi1 = mod(Pi1, 289.0);
-  vec3 Pf0 = fract(P);
-  vec3 Pf1 = Pf0 - vec3(1.0);
-  vec4 ix = vec4(Pi0.x, Pi1.x, Pi0.x, Pi1.x);
-  vec4 iy = vec4(Pi0.yy, Pi1.yy);
-  vec4 iz0 = Pi0.zzzz;
-  vec4 iz1 = Pi1.zzzz;
-  vec4 ixy = permute(permute(ix) + iy);
-  vec4 ixy0 = permute(ixy + iz0);
-  vec4 ixy1 = permute(ixy + iz1);
-  vec4 gx0 = ixy0 / 7.0;
-  vec4 gy0 = fract(floor(gx0) / 7.0) - 0.5;
-  gx0 = fract(gx0);
-  vec4 gz0 = vec4(0.5) - abs(gx0) - abs(gy0);
-  vec4 sz0 = step(gz0, vec4(0.0));
-  gx0 -= sz0 * (step(0.0, gx0) - 0.5);
-  gy0 -= sz0 * (step(0.0, gy0) - 0.5);
-  vec4 gx1 = ixy1 / 7.0;
-  vec4 gy1 = fract(floor(gx1) / 7.0) - 0.5;
-  gx1 = fract(gx1);
-  vec4 gz1 = vec4(0.5) - abs(gx1) - abs(gy1);
-  vec4 sz1 = step(gz1, vec4(0.0));
-  gx1 -= sz1 * (step(0.0, gx1) - 0.5);
-  gy1 -= sz1 * (step(0.0, gy1) - 0.5);
-  vec3 g000 = vec3(gx0.x,gy0.x,gz0.x);
-  vec3 g100 = vec3(gx0.y,gy0.y,gz0.y);
-  vec3 g010 = vec3(gx0.z,gy0.z,gz0.z);
-  vec3 g110 = vec3(gx0.w,gy0.w,gz0.w);
-  vec3 g001 = vec3(gx1.x,gy1.x,gz1.x);
-  vec3 g101 = vec3(gx1.y,gy1.y,gz1.y);
-  vec3 g011 = vec3(gx1.z,gy1.z,gz1.z);
-  vec3 g111 = vec3(gx1.w,gy1.w,gz1.w);
-  vec4 norm0 = taylorInvSqrt(vec4(dot(g000,g000),dot(g010,g010),dot(g100,g100),dot(g110,g110)));
-  g000 *= norm0.x; g010 *= norm0.y; g100 *= norm0.z; g110 *= norm0.w;
-  vec4 norm1 = taylorInvSqrt(vec4(dot(g001,g001),dot(g011,g011),dot(g101,g101),dot(g111,g111)));
-  g001 *= norm1.x; g011 *= norm1.y; g101 *= norm1.z; g111 *= norm1.w;
-  float n000 = dot(g000, Pf0);
-  float n100 = dot(g100, vec3(Pf1.x,Pf0.yz));
-  float n010 = dot(g010, vec3(Pf0.x,Pf1.y,Pf0.z));
-  float n110 = dot(g110, vec3(Pf1.xy,Pf0.z));
-  float n001 = dot(g001, vec3(Pf0.xy,Pf1.z));
-  float n101 = dot(g101, vec3(Pf1.x,Pf0.y,Pf1.z));
-  float n011 = dot(g011, vec3(Pf0.x,Pf1.yz));
-  float n111 = dot(g111, Pf1);
-  vec3 fade_xyz = fade(Pf0);
-  vec4 n_z = mix(vec4(n000,n100,n010,n110),vec4(n001,n101,n011,n111),fade_xyz.z);
-  vec2 n_yz = mix(n_z.xy,n_z.zw,fade_xyz.y);
-  float n_xyz = mix(n_yz.x,n_yz.y,fade_xyz.x);
-  return 2.2 * n_xyz;
+const vertexShader = `#version 300 es
+in vec2 position;
+in vec2 uv;
+out vec2 vUv;
+void main() {
+    vUv = uv;
+    gl_Position = vec4(position, 0.0, 1.0);
 }
 `;
 
-interface BeamsProps {
-  beamWidth?: number;
-  beamHeight?: number;
-  beamNumber?: number;
-  lightColor?: string;
-  speed?: number;
-  noiseIntensity?: number;
-  scale?: number;
-  rotation?: number;
+const fragmentShader = `#version 300 es
+precision highp float;
+precision highp int;
+
+out vec4 fragColor;
+
+uniform vec2  uResolution;
+uniform float uTime;
+
+uniform float uIntensity;
+uniform float uSpeed;
+uniform int   uAnimType;
+uniform vec2  uMouse;
+uniform int   uColorCount;
+uniform float uDistort;
+uniform vec2  uOffset;
+uniform sampler2D uGradient;
+uniform float uNoiseAmount;
+uniform int   uRayCount;
+
+float hash21(vec2 p){
+    p = floor(p);
+    float f = 52.9829189 * fract(dot(p, vec2(0.065, 0.005)));
+    return fract(f);
 }
 
-const Beams: FC<BeamsProps> = ({
-  beamWidth = 2,
-  beamHeight = 15,
-  beamNumber = 12,
-  lightColor = '#ffffff',
-  speed = 2,
-  noiseIntensity = 1.75,
-  scale = 0.2,
-  rotation = 0
-}) => {
-  const meshRef = useRef<THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>>(null!);
+mat2 rot30(){ return mat2(0.8, -0.5, 0.5, 0.8); }
 
-  const beamMaterial = useMemo(
-    () =>
-      extendMaterial(THREE.MeshStandardMaterial, {
-        header: `
-  varying vec3 vEye;
-  varying float vNoise;
-  varying vec2 vUv;
-  varying vec3 vPosition;
-  uniform float time;
-  uniform float uSpeed;
-  uniform float uNoiseIntensity;
-  uniform float uScale;
-  ${noise}`,
-        vertexHeader: `
-  float getPos(vec3 pos) {
-    vec3 noisePos =
-      vec3(pos.x * 0., pos.y - uv.y, pos.z + time * uSpeed * 3.) * uScale;
-    return cnoise(noisePos);
-  }
-  vec3 getCurrentPos(vec3 pos) {
-    vec3 newpos = pos;
-    newpos.z += getPos(pos);
-    return newpos;
-  }
-  vec3 getNormal(vec3 pos) {
-    vec3 curpos = getCurrentPos(pos);
-    vec3 nextposX = getCurrentPos(pos + vec3(0.01, 0.0, 0.0));
-    vec3 nextposZ = getCurrentPos(pos + vec3(0.0, -0.01, 0.0));
-    vec3 tangentX = normalize(nextposX - curpos);
-    vec3 tangentZ = normalize(nextposZ - curpos);
-    return normalize(cross(tangentZ, tangentX));
-  }`,
-        fragmentHeader: '',
-        vertex: {
-          '#include <begin_vertex>': `transformed.z += getPos(transformed.xyz);`,
-          '#include <beginnormal_vertex>': `objectNormal = getNormal(position.xyz);`
-        },
-        fragment: {
-          '#include <dithering_fragment>': `
-    float randomNoise = noise(gl_FragCoord.xy);
-    gl_FragColor.rgb -= randomNoise / 15. * uNoiseIntensity;`
-        },
-        material: { fog: true },
-        uniforms: {
-          diffuse: new THREE.Color(...hexToNormalizedRGB('#000000')),
-          time: { shared: true, mixed: true, linked: true, value: 0 },
-          roughness: 0.3,
-          metalness: 0.3,
-          uSpeed: { shared: true, mixed: true, linked: true, value: speed },
-          envMapIntensity: 10,
-          uNoiseIntensity: noiseIntensity,
-          uScale: scale
-        }
-      }),
-    [speed, noiseIntensity, scale]
-  );
+float layeredNoise(vec2 fragPx){
+    vec2 p = mod(fragPx + vec2(uTime * 30.0, -uTime * 21.0), 1024.0);
+    vec2 q = rot30() * p;
+    float n = 0.0;
+    n += 0.40 * hash21(q);
+    n += 0.25 * hash21(q * 2.0 + 17.0);
+    n += 0.20 * hash21(q * 4.0 + 47.0);
+    n += 0.10 * hash21(q * 8.0 + 113.0);
+    n += 0.05 * hash21(q * 16.0 + 191.0);
+    return n;
+}
 
-  return (
-    <CanvasWrapper>
-      <group rotation={[0, 0, degToRad(rotation)]}>
-        <PlaneNoise ref={meshRef} material={beamMaterial} count={beamNumber} width={beamWidth} height={beamHeight} />
-        <DirLight color={lightColor} position={[0, 3, 10]} />
-      </group>
-      <ambientLight intensity={1} />
-      <color attach="background" args={['#000000']} />
-      <PerspectiveCamera makeDefault position={[0, 0, 20]} fov={30} />
-    </CanvasWrapper>
-  );
-};
+vec3 rayDir(vec2 frag, vec2 res, vec2 offset, float dist){
+    float focal = res.y * max(dist, 1e-3);
+    return normalize(vec3(2.0 * (frag - offset) - res, focal));
+}
 
-function createStackedPlanesBufferGeometry(
-  n: number,
-  width: number,
-  height: number,
-  spacing: number,
-  heightSegments: number
-): THREE.BufferGeometry {
-  const geometry = new THREE.BufferGeometry();
-  const numVertices = n * (heightSegments + 1) * 2;
-  const numFaces = n * heightSegments * 2;
-  const positions = new Float32Array(numVertices * 3);
-  const indices = new Uint32Array(numFaces * 3);
-  const uvs = new Float32Array(numVertices * 2);
+float edgeFade(vec2 frag, vec2 res, vec2 offset){
+    vec2 toC = frag - 0.5 * res - offset;
+    float r = length(toC) / (0.5 * min(res.x, res.y));
+    float x = clamp(r, 0.0, 1.0);
+    float q = x * x * x * (x * (x * 6.0 - 15.0) + 10.0);
+    float s = q * 0.5;
+    s = pow(s, 1.5);
+    float tail = 1.0 - pow(1.0 - s, 2.0);
+    s = mix(s, tail, 0.2);
+    float dn = (layeredNoise(frag * 0.15) - 0.5) * 0.0015 * s;
+    return clamp(s + dn, 0.0, 1.0);
+}
 
-  let vertexOffset = 0;
-  let indexOffset = 0;
-  let uvOffset = 0;
-  const totalWidth = n * width + (n - 1) * spacing;
-  const xOffsetBase = -totalWidth / 2;
+mat3 rotX(float a){ float c = cos(a), s = sin(a); return mat3(1.0,0.0,0.0, 0.0,c,-s, 0.0,s,c); }
+mat3 rotY(float a){ float c = cos(a), s = sin(a); return mat3(c,0.0,s, 0.0,1.0,0.0, -s,0.0,c); }
+mat3 rotZ(float a){ float c = cos(a), s = sin(a); return mat3(c,-s,0.0, s,c,0.0, 0.0,0.0,1.0); }
 
-  for (let i = 0; i < n; i++) {
-    const xOffset = xOffsetBase + i * (width + spacing);
-    const uvXOffset = Math.random() * 300;
-    const uvYOffset = Math.random() * 300;
+vec3 sampleGradient(float t){
+    t = clamp(t, 0.0, 1.0);
+    return texture(uGradient, vec2(t, 0.5)).rgb;
+}
 
-    for (let j = 0; j <= heightSegments; j++) {
-      const y = height * (j / heightSegments - 0.5);
-      const v0 = [xOffset, y, 0];
-      const v1 = [xOffset + width, y, 0];
-      positions.set([...v0, ...v1], vertexOffset * 3);
+vec2 rot2(vec2 v, float a){
+    float s = sin(a), c = cos(a);
+    return mat2(c, -s, s, c) * v;
+}
 
-      const uvY = j / heightSegments;
-      uvs.set([uvXOffset, uvY + uvYOffset, uvXOffset + 1, uvY + uvYOffset], uvOffset);
+float bendAngle(vec3 q, float t){
+    float a = 0.8 * sin(q.x * 0.55 + t * 0.6)
+            + 0.7 * sin(q.y * 0.50 - t * 0.5)
+            + 0.6 * sin(q.z * 0.60 + t * 0.7);
+    return a;
+}
 
-      if (j < heightSegments) {
-        const a = vertexOffset,
-          b = vertexOffset + 1,
-          c = vertexOffset + 2,
-          d = vertexOffset + 3;
-        indices.set([a, b, c, c, b, d], indexOffset);
-        indexOffset += 6;
-      }
-      vertexOffset += 2;
-      uvOffset += 4;
+void main(){
+    vec2 frag = gl_FragCoord.xy;
+    float t = uTime * uSpeed;
+    float jitterAmp = 0.1 * clamp(uNoiseAmount, 0.0, 1.0);
+    vec3 dir = rayDir(frag, uResolution, uOffset, 1.0);
+    float marchT = 0.0;
+    vec3 col = vec3(0.0);
+    float n = layeredNoise(frag);
+    vec4 c = cos(t * 0.2 + vec4(0.0, 33.0, 11.0, 0.0));
+    mat2 M2 = mat2(c.x, c.y, c.z, c.w);
+    float amp = clamp(uDistort, 0.0, 50.0) * 0.15;
+
+    mat3 rot3dMat = mat3(1.0);
+    if(uAnimType == 1){
+      vec3 ang = vec3(t * 0.31, t * 0.21, t * 0.17);
+      rot3dMat = rotZ(ang.z) * rotY(ang.y) * rotX(ang.x);
     }
+    mat3 hoverMat = mat3(1.0);
+    if(uAnimType == 2){
+      vec2 m = uMouse * 2.0 - 1.0;
+      vec3 ang = vec3(m.y * 0.6, m.x * 0.6, 0.0);
+      hoverMat = rotY(ang.y) * rotX(ang.x);
+    }
+
+    for (int i = 0; i < 44; ++i) {
+        vec3 P = marchT * dir;
+        P.z -= 2.0;
+        float rad = length(P);
+        vec3 Pl = P * (10.0 / max(rad, 1e-6));
+
+        if(uAnimType == 0){
+            Pl.xz *= M2;
+        } else if(uAnimType == 1){
+      Pl = rot3dMat * Pl;
+        } else {
+      Pl = hoverMat * Pl;
+        }
+
+        float stepLen = min(rad - 0.3, n * jitterAmp) + 0.1;
+
+        float grow = smoothstep(0.35, 3.0, marchT);
+        float a1 = amp * grow * bendAngle(Pl * 0.6, t);
+        float a2 = 0.5 * amp * grow * bendAngle(Pl.zyx * 0.5 + 3.1, t * 0.9);
+        vec3 Pb = Pl;
+        Pb.xz = rot2(Pb.xz, a1);
+        Pb.xy = rot2(Pb.xy, a2);
+
+        float rayPattern = smoothstep(
+            0.5, 0.7,
+            sin(Pb.x + cos(Pb.y) * cos(Pb.z)) *
+            sin(Pb.z + sin(Pb.y) * cos(Pb.x + t))
+        );
+
+        if (uRayCount > 0) {
+            float ang = atan(Pb.y, Pb.x);
+            float comb = 0.5 + 0.5 * cos(float(uRayCount) * ang);
+            comb = pow(comb, 3.0);
+            rayPattern *= smoothstep(0.15, 0.95, comb);
+        }
+
+        vec3 spectralDefault = 1.0 + vec3(
+            cos(marchT * 3.0 + 0.0),
+            cos(marchT * 3.0 + 1.0),
+            cos(marchT * 3.0 + 2.0)
+        );
+
+        float saw = fract(marchT * 0.25);
+        float tRay = saw * saw * (3.0 - 2.0 * saw);
+        vec3 userGradient = 2.0 * sampleGradient(tRay);
+        vec3 spectral = (uColorCount > 0) ? userGradient : spectralDefault;
+        vec3 base = (0.05 / (0.4 + stepLen))
+                  * smoothstep(5.0, 0.0, rad)
+                  * spectral;
+
+        col += base * rayPattern;
+        marchT += stepLen;
+    }
+
+    col *= edgeFade(frag, uResolution, uOffset);
+    col *= uIntensity;
+
+    fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+
+const hexToRgb01 = (hex: string): [number, number, number] => {
+  let h = hex.trim();
+  if (h.startsWith('#')) h = h.slice(1);
+  if (h.length === 3) {
+    const r = h[0],
+      g = h[1],
+      b = h[2];
+    h = r + r + g + g + b + b;
   }
-
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-  geometry.computeVertexNormals();
-  return geometry;
-}
-
-const MergedPlanes = forwardRef<
-  THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>,
-  {
-    material: THREE.ShaderMaterial;
-    width: number;
-    count: number;
-    height: number;
-  }
->(({ material, width, count, height }, ref) => {
-  const mesh = useRef<THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>>(null!);
-  useImperativeHandle(ref, () => mesh.current);
-  const geometry = useMemo(
-    () => createStackedPlanesBufferGeometry(count, width, height, 0, 100),
-    [count, width, height]
-  );
-  useFrame((_, delta) => {
-    mesh.current.material.uniforms.time.value += 0.1 * delta;
-  });
-  return <mesh ref={mesh} geometry={geometry} material={material} />;
-});
-MergedPlanes.displayName = 'MergedPlanes';
-
-const PlaneNoise = forwardRef<
-  THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>,
-  {
-    material: THREE.ShaderMaterial;
-    width: number;
-    count: number;
-    height: number;
-  }
->((props, ref) => (
-  <MergedPlanes ref={ref} material={props.material} width={props.width} count={props.count} height={props.height} />
-));
-PlaneNoise.displayName = 'PlaneNoise';
-
-const DirLight: FC<{ position: [number, number, number]; color: string }> = ({ position, color }) => {
-  const dir = useRef<THREE.DirectionalLight>(null!);
-  useEffect(() => {
-    if (!dir.current) return;
-    const cam = dir.current.shadow.camera as THREE.Camera & {
-      top: number;
-      bottom: number;
-      left: number;
-      right: number;
-      far: number;
-    };
-    cam.top = 24;
-    cam.bottom = -24;
-    cam.left = -24;
-    cam.right = 24;
-    cam.far = 64;
-    dir.current.shadow.bias = -0.004;
-  }, []);
-  return <directionalLight ref={dir} color={color} intensity={1} position={position} />;
+  const intVal = parseInt(h, 16);
+  if (isNaN(intVal) || (h.length !== 6 && h.length !== 8)) return [1, 1, 1];
+  const r = ((intVal >> 16) & 255) / 255;
+  const g = ((intVal >> 8) & 255) / 255;
+  const b = (intVal & 255) / 255;
+  return [r, g, b];
 };
 
-export default Beams;
+const toPx = (v: number | string | undefined): number => {
+  if (v == null) return 0;
+  if (typeof v === 'number') return v;
+  const s = String(v).trim();
+  const num = parseFloat(s.replace('px', ''));
+  return isNaN(num) ? 0 : num;
+};
+
+const PrismaticBurst = ({
+  intensity = 2,
+  speed = 0.5,
+  animationType = 'rotate3d',
+  colors,
+  distort = 0,
+  paused = false,
+  offset = { x: 0, y: 0 },
+  hoverDampness = 0,
+  rayCount,
+  mixBlendMode = 'lighten'
+}: PrismaticBurstProps) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const programRef = useRef<Program | null>(null);
+  const rendererRef = useRef<Renderer | null>(null);
+  const mouseTargetRef = useRef<[number, number]>([0.5, 0.5]);
+  const mouseSmoothRef = useRef<[number, number]>([0.5, 0.5]);
+  const pausedRef = useRef<boolean>(paused);
+  const gradTexRef = useRef<Texture | null>(null);
+  const hoverDampRef = useRef<number>(hoverDampness);
+  const isVisibleRef = useRef<boolean>(true);
+  const meshRef = useRef<Mesh | null>(null);
+  const triRef = useRef<Triangle | null>(null);
+
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
+  useEffect(() => {
+    hoverDampRef.current = hoverDampness;
+  }, [hoverDampness]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const renderer = new Renderer({ dpr, alpha: false, antialias: false });
+    rendererRef.current = renderer;
+
+    const gl = renderer.gl;
+    gl.canvas.style.position = 'absolute';
+    gl.canvas.style.inset = '0';
+    gl.canvas.style.width = '100%';
+    gl.canvas.style.height = '100%';
+    gl.canvas.style.mixBlendMode = mixBlendMode && mixBlendMode !== 'none' ? mixBlendMode : '';
+    container.appendChild(gl.canvas);
+
+    const white = new Uint8Array([255, 255, 255, 255]);
+    const gradientTex = new Texture(gl, {
+      image: white,
+      width: 1,
+      height: 1,
+      generateMipmaps: false,
+      flipY: false
+    });
+
+    gradientTex.minFilter = gl.LINEAR;
+    gradientTex.magFilter = gl.LINEAR;
+    gradientTex.wrapS = gl.CLAMP_TO_EDGE;
+    gradientTex.wrapT = gl.CLAMP_TO_EDGE;
+    gradTexRef.current = gradientTex;
+
+    const program = new Program(gl, {
+      vertex: vertexShader,
+      fragment: fragmentShader,
+      uniforms: {
+        uResolution: { value: [1, 1] as [number, number] },
+        uTime: { value: 0 },
+
+        uIntensity: { value: 1 },
+        uSpeed: { value: 1 },
+        uAnimType: { value: 0 },
+        uMouse: { value: [0.5, 0.5] as [number, number] },
+        uColorCount: { value: 0 },
+        uDistort: { value: 0 },
+        uOffset: { value: [0, 0] as [number, number] },
+        uGradient: { value: gradientTex },
+        uNoiseAmount: { value: 0.8 },
+        uRayCount: { value: 0 }
+      }
+    });
+
+    programRef.current = program;
+
+    const triangle = new Triangle(gl);
+    const mesh = new Mesh(gl, { geometry: triangle, program });
+    triRef.current = triangle;
+    meshRef.current = mesh;
+
+    const resize = () => {
+      const w = container.clientWidth || 1;
+      const h = container.clientHeight || 1;
+      renderer.setSize(w, h);
+      program.uniforms.uResolution.value = [gl.drawingBufferWidth, gl.drawingBufferHeight];
+    };
+
+    let ro: ResizeObserver | null = null;
+    if ('ResizeObserver' in window) {
+      ro = new ResizeObserver(resize);
+      ro.observe(container);
+    } else {
+      (window as Window).addEventListener('resize', resize);
+    }
+    resize();
+
+    const onPointer = (e: PointerEvent) => {
+      const rect = container.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / Math.max(rect.width, 1);
+      const y = (e.clientY - rect.top) / Math.max(rect.height, 1);
+      mouseTargetRef.current = [Math.min(Math.max(x, 0), 1), Math.min(Math.max(y, 0), 1)];
+    };
+    container.addEventListener('pointermove', onPointer, { passive: true });
+
+    let io: IntersectionObserver | null = null;
+    if ('IntersectionObserver' in window) {
+      io = new IntersectionObserver(
+        entries => {
+          if (entries[0]) isVisibleRef.current = entries[0].isIntersecting;
+        },
+        { root: null, threshold: 0.01 }
+      );
+      io.observe(container);
+    }
+    const onVis = () => {};
+    document.addEventListener('visibilitychange', onVis);
+
+    let raf = 0;
+    let last = performance.now();
+    let accumTime = 0;
+
+    const update = (now: number) => {
+      const dt = Math.max(0, now - last) * 0.001;
+      last = now;
+      const visible = isVisibleRef.current && !document.hidden;
+      if (!pausedRef.current) accumTime += dt;
+      if (!visible) {
+        raf = requestAnimationFrame(update);
+        return;
+      }
+      const tau = 0.02 + Math.max(0, Math.min(1, hoverDampRef.current)) * 0.5;
+      const alpha = 1 - Math.exp(-dt / tau);
+      const tgt = mouseTargetRef.current;
+      const sm = mouseSmoothRef.current;
+      sm[0] += (tgt[0] - sm[0]) * alpha;
+      sm[1] += (tgt[1] - sm[1]) * alpha;
+      program.uniforms.uMouse.value = sm as any;
+      program.uniforms.uTime.value = accumTime;
+      renderer.render({ scene: meshRef.current! });
+      raf = requestAnimationFrame(update);
+    };
+    raf = requestAnimationFrame(update);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      container.removeEventListener('pointermove', onPointer);
+      ro?.disconnect();
+      if (!ro) window.removeEventListener('resize', resize);
+      io?.disconnect();
+      document.removeEventListener('visibilitychange', onVis);
+      try {
+        container.removeChild(gl.canvas);
+      } catch (e) {
+        void e;
+      }
+      meshRef.current = null;
+      triRef.current = null;
+      programRef.current = null;
+      try {
+        const glCtx = rendererRef.current?.gl;
+        if (glCtx && gradTexRef.current?.texture) glCtx.deleteTexture(gradTexRef.current.texture);
+      } catch (e) {
+        void e;
+      }
+      rendererRef.current = null;
+      gradTexRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const canvas = rendererRef.current?.gl?.canvas as HTMLCanvasElement | undefined;
+    if (canvas) {
+      canvas.style.mixBlendMode = mixBlendMode && mixBlendMode !== 'none' ? mixBlendMode : '';
+    }
+  }, [mixBlendMode]);
+
+  useEffect(() => {
+    const program = programRef.current;
+    const renderer = rendererRef.current;
+    const gradTex = gradTexRef.current;
+    if (!program || !renderer || !gradTex) return;
+
+    program.uniforms.uIntensity.value = intensity ?? 1;
+    program.uniforms.uSpeed.value = speed ?? 1;
+
+    const animTypeMap: Record<AnimationType, number> = {
+      rotate: 0,
+      rotate3d: 1,
+      hover: 2
+    };
+    program.uniforms.uAnimType.value = animTypeMap[animationType ?? 'rotate'];
+
+    program.uniforms.uDistort.value = typeof distort === 'number' ? distort : 0;
+
+    const ox = toPx(offset?.x);
+    const oy = toPx(offset?.y);
+    program.uniforms.uOffset.value = [ox, oy];
+    program.uniforms.uRayCount.value = Math.max(0, Math.floor(rayCount ?? 0));
+
+    let count = 0;
+    if (Array.isArray(colors) && colors.length > 0) {
+      const gl = renderer.gl;
+      const capped = colors.slice(0, 64);
+      count = capped.length;
+      const data = new Uint8Array(count * 4);
+      for (let i = 0; i < count; i++) {
+        const [r, g, b] = hexToRgb01(capped[i]);
+        data[i * 4 + 0] = Math.round(r * 255);
+        data[i * 4 + 1] = Math.round(g * 255);
+        data[i * 4 + 2] = Math.round(b * 255);
+        data[i * 4 + 3] = 255;
+      }
+      gradTex.image = data;
+      gradTex.width = count;
+      gradTex.height = 1;
+      gradTex.minFilter = gl.LINEAR;
+      gradTex.magFilter = gl.LINEAR;
+      gradTex.wrapS = gl.CLAMP_TO_EDGE;
+      gradTex.wrapT = gl.CLAMP_TO_EDGE;
+      gradTex.flipY = false;
+      gradTex.generateMipmaps = false;
+      gradTex.format = gl.RGBA;
+      gradTex.type = gl.UNSIGNED_BYTE;
+      gradTex.needsUpdate = true;
+    } else {
+      count = 0;
+    }
+    program.uniforms.uColorCount.value = count;
+  }, [intensity, speed, animationType, colors, distort, offset, rayCount]);
+
+  return <div className="w-full h-full relative overflow-hidden" ref={containerRef} />;
+};
+
+export default PrismaticBurst;
