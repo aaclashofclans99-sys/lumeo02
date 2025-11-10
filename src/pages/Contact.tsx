@@ -30,7 +30,7 @@ export default function Contact({ onNavigate }: ContactProps) {
         <div className="text-center mb-12">
           <h1
             className="text-5xl font-bold text-[#f1f5f9] mb-4"
-            style={{ fontFamily: 'Space Grotesk, sans-serif' }}
+            style={{ fontFamily: 'Helvetica Now Pro, sans-serif' }}
           >
             Let's Build Something Great Together.
           </h1>

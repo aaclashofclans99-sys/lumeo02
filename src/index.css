@@ -1,3 +1,29 @@
+@font-face {
+  font-family: 'Helvetica Now Pro';
+  src: url('/font/helveticanowtext-black-demo.ttf') format('truetype');
+  font-weight: 900;
+}
+
+@font-face {
+  font-family: 'Helvetica Now Pro';
+  src: url('/font/helveticanowtext-blackitalic-demo.ttf') format('truetype');
+  font-weight: 900;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: 'Helvetica Now Pro';
+  src: url('/font/helveticanowtext-bold-demo.ttf') format('truetype');
+  font-weight: 700;
+}
+
+@font-face {
+  font-family: 'Helvetica Now Pro';
+  src: url('/font/helveticanowtext-bolditalic-demo.ttf') format('truetype');
+  font-weight: 700;
+  font-style: italic;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

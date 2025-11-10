@@ -49,7 +49,7 @@ export default function Portfolio() {
         <div className="text-center mb-16">
           <h1
             className="text-5xl font-bold text-[#f1f5f9] mb-4"
-            style={{ fontFamily: 'Space Grotesk, sans-serif' }}
+            style={{ fontFamily: 'Helvetica Now Pro, sans-serif' }}
           >
             Our Work Speaks for Itself.
           </h1>

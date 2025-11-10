@@ -31,7 +31,7 @@ export default function Footer({ onNavigate }: FooterProps) {
               <img src="/logo.png" alt="LumeoDigital" className="h-12 w-12" />
               <span
                 className="text-2xl font-bold bg-gradient-to-r from-[#2563eb] to-[#3b82f6] bg-clip-text text-transparent"
-                style={{ fontFamily: 'Space Grotesk, sans-serif' }}
+                style={{ fontFamily: 'Helvetica Now Pro, sans-serif' }}
               >
                 LumeoDigital
               </span>
@@ -39,7 +39,7 @@ export default function Footer({ onNavigate }: FooterProps) {
           </div>
 
           <div>
-            <h3 className="text-xl font-bold text-[#f1f5f9] mb-3" style={{ fontFamily: 'Space Grotesk, sans-serif' }}>
+            <h3 className="text-xl font-bold text-[#f1f5f9] mb-3" style={{ fontFamily: 'Helvetica Now Pro, sans-serif' }}>
               Quick Links
             </h3>
             <ul className="space-y-2">
@@ -57,7 +57,7 @@ export default function Footer({ onNavigate }: FooterProps) {
           </div>
 
           <div>
-            <h3 className="text-xl font-bold text-[#f1f5f9] mb-3" style={{ fontFamily: 'Space Grotesk, sans-serif' }}>
+            <h3 className="text-xl font-bold text-[#f1f5f9] mb-3" style={{ fontFamily: 'Helvetica Now Pro, sans-serif' }}>
               Connect
             </h3>
             <div className="flex gap-4">

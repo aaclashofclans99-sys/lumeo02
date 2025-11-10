@@ -25,7 +25,7 @@ export default function About() {
         <div className="text-center mb-16">
           <h1
             className="text-5xl font-bold text-[#f1f5f9] mb-6"
-            style={{ fontFamily: 'Space Grotesk, sans-serif' }}
+            style={{ fontFamily: 'Helvetica Now Pro, sans-serif' }}
           >
             Our Mission at LumeoDigital.
           </h1>
@@ -45,7 +45,7 @@ export default function About() {
               </div>
               <h3
                 className="text-2xl font-bold text-[#f1f5f9] mb-4"
-                style={{ fontFamily: 'Space Grotesk, sans-serif' }}
+                style={{ fontFamily: 'Helvetica Now Pro, sans-serif' }}
               >
                 {value.title}
               </h3>
@@ -59,7 +59,7 @@ export default function About() {
         <div className="bg-gradient-to-br from-[#0f172a] to-[#1e3a8a] rounded-2xl p-12 text-center">
           <h2
             className="text-3xl font-bold text-[#f1f5f9] mb-4"
-            style={{ fontFamily: 'Space Grotesk, sans-serif' }}
+            style={{ fontFamily: 'Helvetica Now Pro, sans-serif' }}
           >
             Why Choose LumeoDigital?
           </h2>

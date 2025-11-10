@@ -48,7 +48,7 @@ export default function Home({ onNavigate }: HomeProps) {
         <div className="relative z-10 max-w-7x1 mx-auto px-6 text-center">
           <h1
             className="text-6xl md:text-7xl font-bold text-[#f1f5f9] mb-8 animate-fade-in"
-            style={{ fontFamily: 'Space Grotesk, sans-serif' }}
+            style={{ fontFamily: 'Helvetica Now Pro, sans-serif' }}
           >
             Boast Your Business With <br /> A Website that converts <br /> & scales.
           </h1>
@@ -76,7 +76,7 @@ export default function Home({ onNavigate }: HomeProps) {
         <div className="max-w-7xl mx-auto px-6">
           <h2
             className="text-4xl font-bold text-[#f1f5f9] text-center mb-4"
-            style={{ fontFamily: 'Space Grotesk, sans-serif' }}
+            style={{ fontFamily: 'Helvetica Now Pro, sans-serif' }}
           >
             Who We Work With
           </h2>
@@ -118,7 +118,7 @@ export default function Home({ onNavigate }: HomeProps) {
         <div className="max-w-7xl mx-auto px-6">
           <h2
             className="text-4xl font-bold text-[#f1f5f9] text-center mb-4"
-            style={{ fontFamily: 'Space Grotesk, sans-serif' }}
+            style={{ fontFamily: 'Helvetica Now Pro, sans-serif' }}
           >
             What We Do
           </h2>
@@ -144,7 +144,7 @@ export default function Home({ onNavigate }: HomeProps) {
         <div className="max-w-7xl mx-auto px-6">
           <h2
             className="text-4xl font-bold text-[#f1f5f9] text-center mb-12"
-            style={{ fontFamily: 'Space Grotesk, sans-serif' }}
+            style={{ fontFamily: 'Helvetica Now Pro, sans-serif' }}
           >
             Our Credentials
           </h2>
@@ -153,7 +153,7 @@ export default function Home({ onNavigate }: HomeProps) {
               <div key={index} className="text-center">
                 <div
                   className="text-5xl font-bold bg-gradient-to-r from-[#2563eb] to-[#3b82f6] bg-clip-text text-transparent mb-2"
-                  style={{ fontFamily: 'Space Grotesk, sans-serif' }}
+                  style={{ fontFamily: 'Helvetica Now Pro, sans-serif' }}
                 >
                   {stat.number}
                 </div>
@@ -168,7 +168,7 @@ export default function Home({ onNavigate }: HomeProps) {
         <div className="max-w-4xl mx-auto px-6 text-center">
           <h2
             className="text-4xl font-bold text-[#f1f5f9] mb-6"
-            style={{ fontFamily: 'Space Grotesk, sans-serif' }}
+            style={{ fontFamily: 'Helvetica Now Pro, sans-serif' }}
           >
             Ready to Start Your Project?
           </h2>
