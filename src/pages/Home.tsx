@@ -48,7 +48,7 @@ export default function Home({ onNavigate }: HomeProps) {
         <div className="relative z-10 max-w-7x1 mx-auto px-6 text-center">
           <h1
             className="text-6xl md:text-7xl font-bold text-[#f1f5f9] mb-8 animate-fade-in"
-            style={{ fontFamily: 'Momo Trust Display, sans-serif' }}
+            style={{ fontFamily: 'Inter, sans-serif' }}
           >
             Boast Your Business With <br /> A Website that converts <br /> & scales.
           </h1>
